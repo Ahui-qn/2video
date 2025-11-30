@@ -55,7 +55,7 @@ const analysisSchema: Schema = {
                       id: { type: Type.STRING },
                       shotSize: { type: Type.STRING, description: "e.g., 特写, 全景, 航拍 (in Chinese)" },
                       cameraAngle: { type: Type.STRING, description: "e.g., 仰视, 移动镜头 (in Chinese)" },
-                      visualDescription: { type: Type.STRING, description: "STRICT FORMULA: [Shot Size/Angle English] + [Subject Description English] + [Environment/Background English] + [Lighting/Style English]. MUST start with shot size." },
+                      visualDescription: { type: Type.STRING, description: "STRICT FORMULA: [景别] + [主体] + [环境] + [光影]. MUST BE CHINESE." },
                       environment: { type: Type.STRING, description: "Brief environment context (in Chinese)" },
                       characters: { type: Type.STRING, description: "Characters present in shot (in Chinese)" },
                       action: { type: Type.STRING, description: "Specific action occurring (in Chinese)" },
@@ -128,18 +128,18 @@ const getSystemInstruction = (customInstructions?: string, isJsonMode = false) =
   if (customInstructions && customInstructions.trim()) {
     userConstraintBlock = `
     ================================================================
-    *** PRIME DIRECTIVE: USER HARD CONSTRAINTS (HIGHEST PRIORITY) ***
-    The user has defined strict constraints. You MUST adjust your direction to meet these numbers STRICTLY.
+    *** 用户最高优先级指令 (PRIME DIRECTIVE) ***
+    用户定义了硬性约束，你必须数学级精确地遵守这些数值。
     
-    USER INSTRUCTIONS: "${customInstructions}"
+    用户指令: "${customInstructions}"
     
-    [HOW TO COMPLY]:
-    1. **Speaking Rate Calculation**: Use the provided "语速" (default 4 chars/sec) to calculate dialogue duration. Duration = CharacterCount / Rate + 1s buffer.
-    2. **Dialogue Splitting (CRITICAL)**: If a dialogue line is too long for the "Max Shot Duration", you MUST split it into multiple shots. 
-       - Shot A: Character speaking (Medium/Close-up).
-       - Shot B: Reaction shot of listener, or Insert shot of object, while the dialogue continues (Voiceover/Off-screen).
-       - NEVER truncate the text.
-    3. **Total Count**: Combine or split shots to reach the approximate target count.
+    [执行指南]:
+    1. **语速计算**: 使用提供的 "语速" (默认 4字/秒) 来计算时长。 时长 = 字数 / 语速 + 1秒缓冲。
+    2. **台词拆分 (关键)**: 如果某句台词过长导致单镜时长超标，你必须将其拆分为多个镜头。
+       - 镜头A: 说话人画面 (特写/中景)。
+       - 镜头B: 听话人反应镜头，或物体空镜头，此时台词作为画外音继续。
+       - 严禁删减台词，必须逐字保留。
+    3. **总数控制**: 通过合并或拆分镜头来逼近目标总数。
     ================================================================
     `;
   }
@@ -147,34 +147,34 @@ const getSystemInstruction = (customInstructions?: string, isJsonMode = false) =
   let instruction = `
     ${userConstraintBlock}
 
-    You are an expert film director, cinematographer, and strict video editor. 
-    Your task is to convert a raw screenplay/script into a structured production storyboard ready for AI video generation.
+    你是一位专家级电影导演、摄影指导和剪辑师。
+    你的任务是将原始剧本转换为结构化的制作分镜表，直接用于 AI 视频生成。
     
-    ### CORE RULES (NON-NEGOTIABLE):
-    1. **NO DATA LOSS (CRITICAL):** You MUST preserve 100% of the dialogue. Do NOT summarize, truncate, or omit any spoken lines. 
-    2. **Language:** The output fields (action, environment, shotSize, etc.) must be in **Simplified Chinese (简体中文)**.
+    ### 核心规则 (不可协商):
+    1. **数据零丢失 (CRITICAL):** 你必须 100% 保留所有对话。严禁总结、截断或省略任何口语台词。
+    2. **语言:** 所有输出字段（动作、环境、景别等）必须是 **简体中文**。
     
-    3. **Visual Prompts (STRICT FORMULA):** The 'visualDescription' field is for AI Image Generation (Midjourney/Stable Diffusion).
-       - **LANGUAGE:** English ONLY.
-       - **MANDATORY FORMULA:** You MUST STRICTLY follow this order:
-         "[Shot Size/Camera Angle] + [Subject Description] + [Environment/Background] + [Lighting/Style]"
+    3. **AI 画面提示词 (visualDescription):** 
+       - **语言:** 必须使用 **简体中文** (Simplified Chinese)。
+       - **强制公式:** 你必须严格遵守以下顺序：
+         "[景别/镜头角度] + [主体描述] + [环境/背景] + [光影/风格]"
        
-       - **ASSET INJECTION & CONSISTENCY (CRITICAL):** 
-         - **Subject:** If a character (e.g., "Kai") is in the shot, you MUST look up their 'visualSummary' in the assets list and paste it here (e.g. "Kai (Young man with mechanical arm, messy hair)").
-         - **Environment:** If the scene header is the same as the previous shot, the [Environment] part MUST be consistent. Do not change the background description randomly.
-         - **Shot Size Start:** ALWAYS start the prompt with the visual Shot Size (e.g., "Extreme Close-up of...", "Wide angle shot of...").
+       - **资产注入与一致性 (关键):** 
+         - **主体:** 如果镜头中出现角色（例如“凯”），你必须查找资产表中的 'visualSummary' 并填入此处（例如“凯（20岁男子，机械手臂，凌乱短发）”）。不要每次都重新发明外貌。
+         - **环境:** 如果场景头与上一镜相同，[环境] 部分必须保持一致。
+         - **起手式:** 永远以景别开头（例如“特写镜头，...”、“广角镜头，...”）。
+         - **示例:** "中景镜头，凯（20岁男子，机械手臂），正在大口吃面，赛博朋克拉面店背景，窗外霓虹雨，电影感布光，青橙色调。"
     
-    4. **Internal Monologue:** If a character's dialogue is an internal thought (indicated by 'OS', 'V.O.', or context), you MUST prefix the dialogue with '【内心OS】'.
-    5. **B-Roll & Empty Shots:** If the script describes scenery or silence, create shots with empty 'dialogue' fields.
+    4. **内心独白:** 如果台词是内心想法（标注为 OS, V.O. 或心声），必须在台词前加 '【内心OS】'。
+    5. **空镜头:** 如果剧本描述了风景或沉默，请创建 'dialogue' 为空的镜头。
 
-    ### STRUCTURE & EPISODES:
-    - **Detect Episodes:** Look for headers like "第1集", "Episode 1", "Chapter 1". 
-    - Structure the output as **Episodes -> Scenes -> Shots**.
-    - If the script contains multiple episodes, separate them into distinct objects in the 'episodes' array.
-    - If no specific episode header is found, group everything under "第1集".
+    ### 结构与集数:
+    - **检测集数:** 寻找 "第1集", "Episode 1", "Chapter 1" 等标题。
+    - 输出结构为 **Episodes -> Scenes -> Shots**。
+    - 如果剧本包含多集，请将其分开。如果未发现集数标题，默认归入 "第1集"。
 
-    ### FORMATTING:
-    - Duration format: "3s", "1.5s".
+    ### 格式:
+    - 时长格式: "3s", "1.5s"。
   `;
 
   if (isJsonMode) {
@@ -198,7 +198,7 @@ const getSystemInstruction = (customInstructions?: string, isJsonMode = false) =
             "id": "string",
             "shotSize": "string",
             "cameraAngle": "string",
-            "visualDescription": "string",
+            "visualDescription": "string (CHINESE ONLY: [景别]+[主体]+[环境]+[光影])",
             "environment": "string",
             "characters": "string",
             "action": "string",
@@ -357,41 +357,42 @@ const callOpenAICompatible = async (
   return cleanAndParseJSON(content);
 };
 
-// --- Smart Chunking Logic for Long Scripts (EPISODE PRIORITY) ---
+// --- Smart Chunking Logic for Long Scripts (EPISODE PRIORITY + LOGGING) ---
 
 const CHUNK_SIZE_LIMIT = 1500; 
 
 function smartSplitScript(text: string): string[] {
-  // Regex to detect Episode headers (e.g. 第1集, Episode 01, Chapter 1)
-  // We use capture group in split to Keep the delimiter, but split behaves differently in JS with capture groups.
-  // Instead, we use a positive lookahead to split *before* the match, keeping the match in the next chunk.
+  console.log(`[SmartSplit] 开始切分剧本。总字数: ${text.length}`);
   
-  // 1. First, split by Episode Boundaries if they exist
-  // The regex finds the start of an episode.
+  // 1. Split by Episode Boundaries
   const episodeBoundaryRegex = /(?=^(?:第\s*\d+\s*[集章]|Episode\s*\d+|Chapter\s*\d+))/m;
-  
-  // If no episode header is found, this will just return the whole text as one item.
   const rawEpisodes = text.split(episodeBoundaryRegex);
 
   const finalChunks: string[] = [];
 
-  for (const rawEp of rawEpisodes) {
+  rawEpisodes.forEach((rawEp, index) => {
     const epText = rawEp.trim();
-    if (!epText) continue;
+    if (!epText) return;
 
-    // If a single episode is still too huge (e.g., > 1500 chars), split it internally by scenes
+    console.log(`[SmartSplit] 处理第 ${index + 1} 个集块，长度: ${epText.length}`);
+
+    // If a single episode is still too huge, split it internally
     if (epText.length > CHUNK_SIZE_LIMIT) {
-       finalChunks.push(...splitInternal(epText));
+       console.log(`[SmartSplit] -> 集块过长 (> ${CHUNK_SIZE_LIMIT})，执行内部场景切分...`);
+       const internalChunks = splitInternal(epText);
+       console.log(`[SmartSplit] -> 内部切分为 ${internalChunks.length} 个小块。`);
+       finalChunks.push(...internalChunks);
     } else {
-       // It's a small episode (or the only part), keep it as one unit.
+       console.log(`[SmartSplit] -> 集块长度合适，保留为单块。`);
        finalChunks.push(epText);
     }
-  }
+  });
 
+  console.log(`[SmartSplit] 切分完成。总计 ${finalChunks.length} 个请求块。`);
   return finalChunks;
 }
 
-// Sub-splitter for internal scene breaking when an episode is huge
+// Sub-splitter for internal scene breaking
 function splitInternal(text: string): string[] {
   const chunks: string[] = [];
   const lines = text.split('\n');
@@ -400,7 +401,6 @@ function splitInternal(text: string): string[] {
   const sceneHeaderRegex = /^(?:INT\.|EXT\.|内景|外景|日景|夜景|场景|Scene|第.+场)/i;
 
   for (const line of lines) {
-    // If adding this line exceeds the limit
     if (currentChunk.length + line.length > CHUNK_SIZE_LIMIT) {
        // Priority: Split at a Scene Header
        if (sceneHeaderRegex.test(line.trim())) {
@@ -409,14 +409,14 @@ function splitInternal(text: string): string[] {
          continue;
        }
        
-       // Fallback: Paragraph break (empty line)
+       // Fallback: Paragraph break
        if (line.trim() === '' && currentChunk.length > CHUNK_SIZE_LIMIT - 100) {
           if (currentChunk.trim()) chunks.push(currentChunk);
           currentChunk = "\n"; 
           continue;
        }
 
-       // Hard limit buffer (last resort)
+       // Hard limit
        if (currentChunk.length > CHUNK_SIZE_LIMIT + 200) {
           if (currentChunk.trim()) chunks.push(currentChunk);
           currentChunk = line + "\n";
@@ -453,7 +453,6 @@ function mergeAnalysisResults(results: AnalysisResult[]): AnalysisResult {
     // Merge Episodes
     if (res.episodes) {
       res.episodes.forEach(ep => {
-        // Normalize EP ID (e.g. "01" -> "1")
         const epId = ep.id.replace(/\D/g, '') || ep.id; 
         
         if (epMap.has(epId)) {
@@ -546,15 +545,12 @@ export const analyzeScript = async (
   signal?: AbortSignal
 ): Promise<AnalysisResult> => {
 
-  // 1. Smart Split based on Episode Headers first!
   const chunks = smartSplitScript(scriptText);
   const results: AnalysisResult[] = [];
 
   // ROLLING CONTEXT CONTAINERS
   const establishedCharacters: CharacterProfile[] = [];
   const establishedAssets: AssetProfile[] = [];
-
-  console.log(`Script split into ${chunks.length} chunks (Episode-aware).`);
 
   for (let i = 0; i < chunks.length; i++) {
     if (signal?.aborted) throw new Error("分析已取消");
@@ -571,14 +567,13 @@ export const analyzeScript = async (
     // Inject Rolling Context (Assets found so far)
     if (i > 0) {
        chunkInstructions += `\n\n================================================`;
-       chunkInstructions += `\n*** CONTEXT RECALL (CONTINUATION) ***`;
-       chunkInstructions += `\nThis is PART ${i+1} of the script. It might be a new Episode or a continuation of the previous one.`;
+       chunkInstructions += `\n*** 上下文回忆 (CONTEXT RECALL) ***`;
+       chunkInstructions += `\n这是剧本的第 ${i+1} 部分。它可能是新的一集，或者是上一集的继续。`;
        
        if (establishedCharacters.length > 0 || establishedAssets.length > 0) {
-           chunkInstructions += `\n\n*** ESTABLISHED ASSETS (CRITICAL) ***`;
-           chunkInstructions += `\nYou MUST use these existing visual definitions for consistency. Do not invent new descriptions for these items.`;
+           chunkInstructions += `\n\n*** 已确立的资产 (关键) ***`;
+           chunkInstructions += `\n你必须复用以下已有的视觉定义，确保人物和场景外观一致。不要发明新的描述。`;
            
-           // We inject a condensed JSON of assets to save tokens while keeping visual data
            const contextData = {
                existingCharacters: establishedCharacters.map(c => ({ name: c.name, visualSummary: c.visualSummary })),
                existingLocationsAndProps: establishedAssets.map(a => ({ name: a.name, description: a.description }))
@@ -618,7 +613,6 @@ export const analyzeScript = async (
       results.push(result);
 
       // --- UPDATE ROLLING CONTEXT ---
-      // Add new characters/assets to our established list if they don't exist yet
       if (result.characters) {
           result.characters.forEach(newChar => {
               if (!establishedCharacters.find(c => c.name === newChar.name)) {
