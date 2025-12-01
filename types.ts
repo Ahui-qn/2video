@@ -46,6 +46,7 @@ export interface AnalysisResult {
 
 export enum AppState {
   IDLE = 'IDLE',
+  PREVIEW_CHUNKS = 'PREVIEW_CHUNKS', // New state for reviewing split chunks
   ANALYZING = 'ANALYZING',
   COMPLETE = 'COMPLETE',
   ERROR = 'ERROR'

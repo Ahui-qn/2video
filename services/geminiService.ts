@@ -1,81 +1,5 @@
 
-import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AnalysisResult, UserKeys, LLMProvider, CharacterProfile, AssetProfile, Episode } from "../types";
-
-// --- Schema Definition ---
-const analysisSchema: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    title: { type: Type.STRING, description: "Suggested title of the script (in Chinese)" },
-    synopsis: { type: Type.STRING, description: "A one-sentence summary (in Chinese)" },
-    characters: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING, description: "Character Name" },
-          visualSummary: { type: Type.STRING, description: "Detailed physical appearance (hair, clothes, face) used for image generation prompts. (in Simplified Chinese)" },
-          traits: { type: Type.STRING, description: "Character traits (in Chinese)" }
-        },
-        required: ["name", "visualSummary", "traits"]
-      }
-    },
-    assets: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING },
-          description: { type: Type.STRING, description: "Visual description of the prop or location (in Simplified Chinese)" },
-          type: { type: Type.STRING, enum: ["Prop", "Location"] }
-        },
-        required: ["name", "description", "type"]
-      }
-    },
-    episodes: {
-      type: Type.ARRAY,
-      description: "List of Episodes found in the script. If no episode header is found, create one default episode.",
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          id: { type: Type.STRING, description: "Episode Number (e.g. '1')" },
-          title: { type: Type.STRING, description: "Episode Title (e.g. '第1集')" },
-          scenes: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                sceneId: { type: Type.STRING },
-                header: { type: Type.STRING, description: "Scene header (e.g. 内景 卧室 - 白天)" },
-                shots: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      id: { type: Type.STRING },
-                      shotSize: { type: Type.STRING, description: "e.g., 特写, 全景, 航拍 (in Chinese)" },
-                      cameraAngle: { type: Type.STRING, description: "e.g., 仰视, 移动镜头 (in Chinese)" },
-                      visualDescription: { type: Type.STRING, description: "STRICT FORMULA: [景别] + [主体] + [环境] + [光影]. MUST BE CHINESE." },
-                      environment: { type: Type.STRING, description: "Brief environment context (in Chinese)" },
-                      characters: { type: Type.STRING, description: "Characters present in shot (in Chinese)" },
-                      action: { type: Type.STRING, description: "Specific action occurring (in Chinese)" },
-                      dialogue: { type: Type.STRING, description: "VERBATIM dialogue. If it is an internal monologue (OS), start with 【内心OS】." },
-                      duration: { type: Type.STRING, description: "Estimated duration (e.g. '3s')" }
-                    },
-                    required: ["id", "shotSize", "cameraAngle", "visualDescription", "environment", "characters", "action", "duration"]
-                  }
-                }
-              },
-              required: ["sceneId", "header", "shots"]
-            }
-          }
-        },
-        required: ["id", "title", "scenes"]
-      }
-    }
-  },
-  required: ["title", "characters", "episodes"]
-};
 
 // --- Helper: Clean and Parse JSON ---
 function cleanAndParseJSON(text: string): AnalysisResult {
@@ -121,7 +45,7 @@ async function retry<T>(fn: () => Promise<T>, retries = 1, delay = 1000): Promis
   }
 }
 
-// System Instruction
+// System Instruction (CHINESE OPTIMIZED)
 const getSystemInstruction = (customInstructions?: string, isJsonMode = false) => {
   let userConstraintBlock = "";
   
@@ -357,14 +281,16 @@ const callOpenAICompatible = async (
   return cleanAndParseJSON(content);
 };
 
-// --- Smart Chunking Logic for Long Scripts (EPISODE PRIORITY + LOGGING) ---
+// --- Smart Chunking Logic (Episode-Priority) ---
 
 const CHUNK_SIZE_LIMIT = 1500; 
 
-function smartSplitScript(text: string): string[] {
+// EXPORT THIS FUNCTION FOR UI PREVIEW
+export function smartSplitScript(text: string): string[] {
   console.log(`[SmartSplit] 开始切分剧本。总字数: ${text.length}`);
   
-  // 1. Split by Episode Boundaries
+  // 1. Split by Episode Boundaries (Lookahead regex to keep delimiters)
+  // Detect "第x集", "Episode x", "Chapter x"
   const episodeBoundaryRegex = /(?=^(?:第\s*\d+\s*[集章]|Episode\s*\d+|Chapter\s*\d+))/m;
   const rawEpisodes = text.split(episodeBoundaryRegex);
 
@@ -374,21 +300,21 @@ function smartSplitScript(text: string): string[] {
     const epText = rawEp.trim();
     if (!epText) return;
 
-    console.log(`[SmartSplit] 处理第 ${index + 1} 个集块，长度: ${epText.length}`);
-
     // If a single episode is still too huge, split it internally
     if (epText.length > CHUNK_SIZE_LIMIT) {
        console.log(`[SmartSplit] -> 集块过长 (> ${CHUNK_SIZE_LIMIT})，执行内部场景切分...`);
        const internalChunks = splitInternal(epText);
-       console.log(`[SmartSplit] -> 内部切分为 ${internalChunks.length} 个小块。`);
        finalChunks.push(...internalChunks);
     } else {
-       console.log(`[SmartSplit] -> 集块长度合适，保留为单块。`);
        finalChunks.push(epText);
     }
   });
 
-  console.log(`[SmartSplit] 切分完成。总计 ${finalChunks.length} 个请求块。`);
+  // If no chunks (e.g. empty text or regex failed on weird format), return original
+  if (finalChunks.length === 0 && text.trim().length > 0) {
+      return [text];
+  }
+
   return finalChunks;
 }
 
@@ -433,7 +359,7 @@ function splitInternal(text: string): string[] {
   return chunks;
 }
 
-function mergeAnalysisResults(results: AnalysisResult[]): AnalysisResult {
+export function mergeAnalysisResults(results: AnalysisResult[]): AnalysisResult {
   if (results.length === 0) throw new Error("No results to merge");
   
   const merged: AnalysisResult = {
@@ -481,7 +407,6 @@ function mergeAnalysisResults(results: AnalysisResult[]): AnalysisResult {
   merged.characters = Array.from(charMap.values());
   merged.assets = Array.from(assetMap.values());
 
-  // Flatten final scenes for UI compatibility
   if (merged.episodes) {
     merged.scenes = merged.episodes.flatMap(e => e.scenes);
   }
@@ -542,10 +467,13 @@ export const analyzeScript = async (
   provider: LLMProvider = 'google', 
   userKeys?: UserKeys,
   onProgress?: (progress: number, message: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  useChunking: boolean = true // Toggle for Smart Splitting
 ): Promise<AnalysisResult> => {
 
-  const chunks = smartSplitScript(scriptText);
+  // 1. Determine Chunks
+  // If useChunking is false, we just send the whole text as one chunk
+  const chunks = useChunking ? smartSplitScript(scriptText) : [scriptText];
   const results: AnalysisResult[] = [];
 
   // ROLLING CONTEXT CONTAINERS
@@ -565,7 +493,7 @@ export const analyzeScript = async (
     let chunkInstructions = customInstructions || "";
     
     // Inject Rolling Context (Assets found so far)
-    if (i > 0) {
+    if (i > 0 && useChunking) {
        chunkInstructions += `\n\n================================================`;
        chunkInstructions += `\n*** 上下文回忆 (CONTEXT RECALL) ***`;
        chunkInstructions += `\n这是剧本的第 ${i+1} 部分。它可能是新的一集，或者是上一集的继续。`;
@@ -585,7 +513,9 @@ export const analyzeScript = async (
 
     const makeRequest = async () => {
       // Prompt injection: Explicitly tell model to focus on THIS chunk
-      const scopedText = `Analyze THIS specific part of the script only. Do not hallucinate previous or future parts.\n\n[SCRIPT PART START]\n${chunks[i]}\n[SCRIPT PART END]`;
+      const scopedText = useChunking 
+        ? `Analyze THIS specific part of the script only. Do not hallucinate previous or future parts.\n\n[SCRIPT PART START]\n${chunks[i]}\n[SCRIPT PART END]`
+        : chunks[i];
 
       if (provider === 'google') {
         return await callGoogle(scopedText, chunkInstructions, modelId, userKeys, signal);
@@ -632,7 +562,8 @@ export const analyzeScript = async (
          onProgress(Math.round(((i + 1) / chunks.length) * 100), `完成第 ${i + 1} 部分，整理中...`);
       }
 
-      if (i < chunks.length - 1) {
+      // Small delay between chunks
+      if (i < chunks.length - 1 && useChunking) {
         await new Promise(resolve => setTimeout(resolve, 800)); 
       }
 
