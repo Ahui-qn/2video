@@ -9,14 +9,14 @@
     <style>
       body {
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
-        background-color: #0f172a; /* Deep Slate Blue */
-        color: #e2e8f0;
+        background-color: #1a0510; /* Deep Rose Black */
+        color: #fce7f3; /* Rose 100 */
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         overflow: hidden; 
       }
       
-      /* Refined Scrollbar for Apple-like Glass feel */
+      /* Refined Scrollbar for Apple-like Glass feel (Rose Theme) */
       ::-webkit-scrollbar {
         width: 6px;
         height: 6px;
@@ -25,11 +25,11 @@
         background: transparent; 
       }
       ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.1); 
+        background: rgba(244, 114, 182, 0.2); /* Pink-400 with opacity */
         border-radius: 100px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.2); 
+        background: rgba(244, 114, 182, 0.4); 
       }
 
       .custom-scrollbar::-webkit-scrollbar {
@@ -43,6 +43,14 @@
       }
       .animate-fade-in {
         animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      
+      @keyframes pulse-slow {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 0.8; }
+      }
+      .animate-pulse-slow {
+        animation: pulse-slow 3s ease-in-out infinite;
       }
     </style>
   <script type="importmap">

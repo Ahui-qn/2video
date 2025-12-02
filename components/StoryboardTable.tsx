@@ -1,19 +1,50 @@
 
-import React, { useMemo } from 'react';
-import { Scene, Shot } from '../types';
-import { Camera, Clock, MapPin, User, MessageSquare, Image as ImageIcon, Film, Hash } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Scene, Shot, Episode } from '../types';
+import { Camera, Clock, MapPin, User, MessageSquare, Image as ImageIcon, Film, Hash, MonitorPlay, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface StoryboardTableProps {
-  scenes: Scene[];
-  onUpdateShot: (sceneIndex: number, shotIndex: number, field: keyof Shot, value: string) => void;
+  scenes?: Scene[]; // Fallback flat list
+  episodes?: Episode[]; // New grouped list
+  onUpdateShot: (episodeIndex: number, sceneIndex: number, shotIndex: number, field: keyof Shot, value: string) => void;
 }
 
-export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, onUpdateShot }) => {
-  
+export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episodes, onUpdateShot }) => {
+  const [collapsedEpisodes, setCollapsedEpisodes] = useState<number[]>([]);
+
+  // Normalize data: Ensure we always work with Episodes.
+  const displayEpisodes: Episode[] = useMemo(() => {
+    if (episodes && episodes.length > 0) {
+      return episodes;
+    }
+    if (scenes && scenes.length > 0) {
+      return [{ id: 'default', title: '全集分镜', scenes: scenes }];
+    }
+    return [];
+  }, [scenes, episodes]);
+
+  // Auto-collapse older episodes when a new one is added
+  useEffect(() => {
+    if (displayEpisodes.length > 1) {
+        // Collapse all except the last one
+        const allIndices = displayEpisodes.map((_, i) => i);
+        const allExceptLast = allIndices.slice(0, -1);
+        setCollapsedEpisodes(prev => {
+            const unique = Array.from(new Set([...prev, ...allExceptLast]));
+            return unique;
+        });
+    }
+  }, [displayEpisodes.length]);
+
+  const toggleCollapse = (index: number) => {
+    setCollapsedEpisodes(prev => 
+        prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index]
+    );
+  };
+
   // Helper: Parse "3s", "3.5", "3秒" into number
   const parseDuration = (dur: string): number => {
     if (!dur) return 0;
-    // Match first integer or float
     const match = dur.match(/(\d+(\.\d+)?)/);
     return match ? parseFloat(match[0]) : 0;
   };
@@ -26,144 +57,181 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, onUpda
     return `${s}秒`;
   };
 
-  // Calculate Stats
-  const stats = useMemo(() => {
-    const sceneStats = scenes.map(scene => {
-      const sCount = scene.shots.length;
-      const sDur = scene.shots.reduce((acc, shot) => acc + parseDuration(shot.duration), 0);
-      return { count: sCount, duration: sDur };
-    });
-
-    return { sceneStats };
-  }, [scenes]);
-
-  if (scenes.length === 0) {
-    return null; // Handled by parent
+  if (displayEpisodes.length === 0) {
+    return null; 
   }
 
   return (
-    <div className="h-full overflow-y-auto pr-4 pb-20 custom-scrollbar">
+    <div className="h-full overflow-y-auto pr-2 pb-20 custom-scrollbar">
       
-      {scenes.map((scene, sceneIndex) => {
-        const sceneStat = stats.sceneStats[sceneIndex];
-        
-        return (
-          <div key={sceneIndex} className="mb-10 bg-white/[0.03] backdrop-blur-sm border border-white/5 rounded-2xl overflow-hidden shadow-lg transition-all hover:border-white/10">
-            
-            {/* Scene Header */}
-            <div className="bg-white/[0.05] px-6 py-4 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-10 backdrop-blur-md">
-               <div className="flex items-center gap-4 overflow-hidden">
-                 <div className="shrink-0 flex items-center gap-2 text-indigo-300 font-mono text-xs font-bold bg-indigo-500/10 px-3 py-1 rounded-lg border border-indigo-500/20">
-                  <Film size={12} />
-                  SCENE {scene.sceneId || sceneIndex + 1}
-                </div>
-                <h3 className="text-white font-semibold text-base tracking-wide truncate" title={scene.header}>{scene.header}</h3>
-               </div>
+      {displayEpisodes.map((episode, epIndex) => {
+        // Calculate Episode Stats
+        const epShotCount = episode.scenes.reduce((acc, s) => acc + s.shots.length, 0);
+        const epDuration = episode.scenes.reduce((acc, s) => acc + s.shots.reduce((a, shot) => a + parseDuration(shot.duration), 0), 0);
+        const isCollapsed = collapsedEpisodes.includes(epIndex);
 
-               {/* Scene Specific Stats */}
-               <div className="flex items-center gap-3 shrink-0">
-                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-black/20 border border-white/5 text-[10px] text-slate-400 font-mono">
-                    <Hash size={10} />
-                    <span>{sceneStat.count} SHOTS</span>
+        return (
+          <div key={epIndex} className={`mb-6 bg-white/[0.02] backdrop-blur-sm border border-white/5 rounded-2xl overflow-hidden shadow-2xl transition-all duration-500 ${isCollapsed ? 'opacity-70 hover:opacity-100 scale-[0.99]' : 'scale-100'}`}>
+            
+            {/* --- EPISODE HEADER (Redesigned: Floating Glass Bar) --- */}
+            <div 
+                onClick={() => toggleCollapse(epIndex)}
+                className={`px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-20 backdrop-blur-md cursor-pointer transition-all duration-300 border-b ${
+                    isCollapsed 
+                    ? 'bg-gradient-to-r from-white/5 to-transparent border-white/5' 
+                    : 'bg-gradient-to-r from-rose-900/60 via-purple-900/40 to-[#1a0510]/80 border-rose-500/20 shadow-[0_4px_20px_-5px_rgba(244,63,94,0.1)]'
+                }`}
+            >
+                 <div className="flex items-center gap-4">
+                    <div className={`p-2.5 rounded-xl border shadow-inner transition-colors duration-300 ${
+                        isCollapsed 
+                        ? 'bg-white/5 text-stone-500 border-white/5' 
+                        : 'bg-rose-500/20 text-rose-200 border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.2)]'
+                    }`}>
+                       <MonitorPlay size={22} />
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-3">
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border transition-colors ${
+                                isCollapsed 
+                                ? 'bg-white/5 text-stone-500 border-white/5' 
+                                : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+                            }`}>
+                              第 {epIndex + 1} 部分
+                            </span>
+                        </div>
+                        <h2 className={`text-xl font-bold tracking-tight mt-1 transition-colors ${
+                            isCollapsed ? 'text-stone-400' : 'text-white text-shadow-sm'
+                        }`}>{episode.title || episode.id}</h2>
+                    </div>
                  </div>
-                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-black/20 border border-white/5 text-[10px] text-slate-400 font-mono">
-                    <Clock size={10} />
-                    <span>{formatDuration(sceneStat.duration)}</span>
+                 <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-stone-500 font-medium uppercase tracking-wider">总镜头</span>
+                            <span className={`text-sm font-mono font-bold ${isCollapsed ? 'text-stone-400' : 'text-stone-200'}`}>{epShotCount}</span>
+                        </div>
+                        <div className="w-px h-8 bg-white/10 mx-1"></div>
+                        <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-stone-500 font-medium uppercase tracking-wider">总时长</span>
+                            <span className={`text-sm font-mono font-bold ${isCollapsed ? 'text-stone-400' : 'text-stone-200'}`}>{formatDuration(epDuration)}</span>
+                        </div>
+                    </div>
+                    <div className={`transition-colors ${isCollapsed ? 'text-stone-600' : 'text-rose-400'}`}>
+                        {isCollapsed ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+                    </div>
                  </div>
-               </div>
             </div>
 
-            {/* Shots List */}
-            <div className="divide-y divide-white/5">
-              {scene.shots.map((shot, shotIndex) => (
-                <div key={shotIndex} className="p-6 hover:bg-white/[0.02] transition-colors group">
-                  
-                  {/* Top Row: Meta info pills */}
-                  <div className="flex flex-wrap items-center gap-3 mb-5">
-                    <span className="text-slate-500 font-mono text-xs font-semibold select-none mr-1">#{shot.id}</span>
+            {/* Continuous List of Shots */}
+            {!isCollapsed && (
+            <div className="divide-y divide-white/5 animate-fade-in">
+              {episode.scenes.map((scene, sceneIndex) => (
+                <React.Fragment key={sceneIndex}>
                     
-                    {/* Shot Size Pill */}
-                    <div className="group/input flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-lg border border-white/5 transition-colors hover:border-white/10 focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/20">
-                      <Camera size={12} className="text-sky-400" />
-                      <input 
-                        className="bg-transparent border-none focus:outline-none w-20 text-xs text-slate-300 placeholder-slate-600 font-medium"
-                        value={shot.shotSize}
-                        onChange={(e) => onUpdateShot(sceneIndex, shotIndex, 'shotSize', e.target.value)}
-                        placeholder="景别"
-                      />
+                    {/* SCENE SEPARATOR ROW */}
+                    <div className="bg-white/[0.02] px-6 py-2 border-y border-white/5 flex items-center gap-3 select-none group">
+                        <Film size={12} className="text-stone-600 group-hover:text-rose-400 transition-colors" />
+                        <span className="text-[10px] font-bold text-stone-500 font-mono tracking-wider group-hover:text-stone-300 transition-colors">
+                            第 {scene.sceneId || sceneIndex + 1} 场: {scene.header}
+                        </span>
                     </div>
 
-                    {/* Camera Angle Pill */}
-                    <div className="group/input flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-lg border border-white/5 transition-colors hover:border-white/10 focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/20">
-                      <MapPin size={12} className="text-emerald-400" />
-                      <input 
-                        className="bg-transparent border-none focus:outline-none w-28 text-xs text-slate-300 placeholder-slate-600 font-medium"
-                        value={shot.cameraAngle}
-                        onChange={(e) => onUpdateShot(sceneIndex, shotIndex, 'cameraAngle', e.target.value)}
-                        placeholder="运镜"
-                      />
-                    </div>
+                    {/* SHOTS */}
+                    {scene.shots.map((shot, shotIndex) => (
+                        <div key={shotIndex} className="p-6 hover:bg-white/[0.04] transition-colors group relative">
+                            
+                            {/* Shot ID Marker */}
+                            <div className="absolute left-0 top-6 w-1 h-8 bg-rose-500/0 group-hover:bg-rose-500 transition-colors rounded-r-full shadow-[0_0_8px_rgba(244,63,94,0.6)]"></div>
 
-                    {/* Duration Pill */}
-                     <div className="group/input flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-lg border border-white/5 transition-colors hover:border-white/10 focus-within:border-indigo-500/50 ml-auto">
-                      <Clock size={12} className="text-amber-400" />
-                      <input 
-                        className="bg-transparent border-none focus:outline-none w-10 text-xs text-slate-300 text-right font-mono"
-                        value={shot.duration}
-                        onChange={(e) => onUpdateShot(sceneIndex, shotIndex, 'duration', e.target.value)}
-                      />
-                    </div>
-                  </div>
+                            {/* Top Row: Meta Inputs */}
+                            <div className="flex flex-wrap items-center gap-3 mb-5 pl-2">
+                                <span className="text-stone-500 font-mono text-xs font-semibold select-none mr-2 w-8 text-right">#{shot.id}</span>
+                                
+                                {/* Shot Size */}
+                                <div className="flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-lg border border-white/5 transition-colors focus-within:border-rose-500/50 focus-within:ring-1 focus-within:ring-rose-500/20 hover:border-white/10 shadow-sm">
+                                    <Camera size={12} className="text-sky-400" />
+                                    <input 
+                                        className="bg-transparent border-none focus:outline-none w-20 text-xs text-stone-300 placeholder-stone-600 font-medium"
+                                        value={shot.shotSize}
+                                        onChange={(e) => onUpdateShot(epIndex, sceneIndex, shotIndex, 'shotSize', e.target.value)}
+                                        placeholder="景别"
+                                    />
+                                </div>
 
-                  {/* Middle Row: The Prompt (Crucial) */}
-                  <div className="mb-6 relative">
-                    <div className="absolute top-0 right-0 z-10">
-                      <span className="text-[9px] font-bold tracking-wider text-slate-400 uppercase bg-white/5 px-2 py-0.5 rounded border border-white/5">Prompt</span>
-                    </div>
-                    <label className="block text-xs font-medium text-indigo-300 mb-2.5 tracking-wide flex items-center gap-2">
-                      <ImageIcon size={14} />
-                      AI 画面提示词
-                    </label>
-                    <textarea 
-                      className="w-full bg-black/20 border border-white/10 rounded-xl p-4 text-sm text-slate-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/40 focus:outline-none resize-none h-28 leading-relaxed shadow-inner transition-all hover:bg-black/30 font-mono"
-                      value={shot.visualDescription}
-                      onChange={(e) => onUpdateShot(sceneIndex, shotIndex, 'visualDescription', e.target.value)}
-                      spellCheck={false}
-                    />
-                  </div>
+                                {/* Angle */}
+                                <div className="flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-lg border border-white/5 transition-colors focus-within:border-rose-500/50 focus-within:ring-1 focus-within:ring-rose-500/20 hover:border-white/10 shadow-sm">
+                                    <MapPin size={12} className="text-emerald-400" />
+                                    <input 
+                                        className="bg-transparent border-none focus:outline-none w-24 text-xs text-stone-300 placeholder-stone-600 font-medium"
+                                        value={shot.cameraAngle}
+                                        onChange={(e) => onUpdateShot(epIndex, sceneIndex, shotIndex, 'cameraAngle', e.target.value)}
+                                        placeholder="运镜"
+                                    />
+                                </div>
 
-                  {/* Bottom Grid: Context */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white/[0.02] p-5 rounded-xl border border-white/5">
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <User size={14} className="text-purple-400" />
-                        <span className="text-xs font-semibold text-slate-400">人物与动作</span>
-                      </div>
-                      <textarea 
-                        className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm text-slate-300 resize-none h-auto overflow-hidden placeholder-slate-600 leading-relaxed"
-                        value={`${shot.characters} ${shot.action}`}
-                        rows={2}
-                        onChange={(e) => onUpdateShot(sceneIndex, shotIndex, 'action', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <MessageSquare size={14} className="text-pink-400" />
-                        <span className="text-xs font-semibold text-slate-400">台词</span>
-                      </div>
-                      <textarea 
-                        className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm text-slate-300 italic resize-none h-auto overflow-hidden placeholder-slate-600 leading-relaxed"
-                        value={shot.dialogue || ""}
-                        placeholder="（无台词）"
-                        rows={2}
-                        onChange={(e) => onUpdateShot(sceneIndex, shotIndex, 'dialogue', e.target.value)}
-                      />
-                    </div>
-                  </div>
+                                {/* Duration */}
+                                <div className="flex items-center gap-2 bg-black/20 px-3 py-1.5 rounded-lg border border-white/5 transition-colors focus-within:border-rose-500/50 ml-auto hover:border-white/10 shadow-sm">
+                                    <Clock size={12} className="text-amber-400" />
+                                    <input 
+                                        className="bg-transparent border-none focus:outline-none w-10 text-xs text-stone-300 text-right font-mono"
+                                        value={shot.duration}
+                                        onChange={(e) => onUpdateShot(epIndex, sceneIndex, shotIndex, 'duration', e.target.value)}
+                                    />
+                                </div>
+                            </div>
 
-                </div>
+                            {/* Prompt Section */}
+                            <div className="mb-6 pl-12 relative">
+                                <div className="absolute top-0 right-0 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span className="text-[9px] font-bold tracking-wider text-stone-500 uppercase bg-black/40 px-2 py-1 rounded border border-white/5">画面提示词</span>
+                                </div>
+                                <div className="relative">
+                                     <ImageIcon size={14} className="absolute -left-7 top-1 text-rose-400/50 group-hover:text-rose-400 transition-colors" />
+                                     <textarea 
+                                        className="w-full bg-black/20 border border-white/5 rounded-xl p-4 text-sm text-stone-200 focus:ring-1 focus:ring-rose-500/30 focus:border-rose-500/40 focus:outline-none resize-none h-24 leading-relaxed shadow-inner font-mono transition-colors hover:bg-black/30 selection:bg-rose-500/30 selection:text-white"
+                                        value={shot.visualDescription}
+                                        onChange={(e) => onUpdateShot(epIndex, sceneIndex, shotIndex, 'visualDescription', e.target.value)}
+                                        spellCheck={false}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Context Grid */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-12">
+                                <div className="bg-white/[0.02] p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <User size={12} className="text-purple-400" />
+                                        <span className="text-[10px] font-bold text-stone-500 uppercase">动作 (Action)</span>
+                                    </div>
+                                    <textarea 
+                                        className="w-full bg-transparent border-none p-0 focus:ring-0 text-xs text-stone-300 resize-none h-auto overflow-hidden placeholder-stone-600 leading-relaxed"
+                                        value={`${shot.characters} ${shot.action}`}
+                                        rows={2}
+                                        onChange={(e) => onUpdateShot(epIndex, sceneIndex, shotIndex, 'action', e.target.value)}
+                                    />
+                                </div>
+                                <div className="bg-white/[0.02] p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <MessageSquare size={12} className="text-pink-400" />
+                                        <span className="text-[10px] font-bold text-stone-500 uppercase">台词 (Dialogue)</span>
+                                    </div>
+                                    <textarea 
+                                        className="w-full bg-transparent border-none p-0 focus:ring-0 text-xs text-stone-300 italic resize-none h-auto overflow-hidden placeholder-stone-600 leading-relaxed"
+                                        value={shot.dialogue || ""}
+                                        placeholder="（无台词）"
+                                        rows={2}
+                                        onChange={(e) => onUpdateShot(epIndex, sceneIndex, shotIndex, 'dialogue', e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                        </div>
+                    ))}
+                </React.Fragment>
               ))}
             </div>
+            )}
           </div>
         );
       })}

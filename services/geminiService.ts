@@ -1,5 +1,6 @@
 
-import { AnalysisResult, UserKeys, LLMProvider, CharacterProfile, AssetProfile, Episode } from "../types";
+import { AnalysisResult, UserKeys, LLMProvider, CharacterProfile, AssetProfile, Episode, Scene, Shot } from "../types";
+import { GoogleGenAI } from "@google/genai";
 
 // --- Helper: Clean and Parse JSON ---
 function cleanAndParseJSON(text: string): AnalysisResult {
@@ -17,10 +18,11 @@ function cleanAndParseJSON(text: string): AnalysisResult {
 
   try {
     const res = JSON.parse(jsonString);
-    // Ensure scenes exist for UI compatibility (Flatten episodes from Schema structure)
-    if (res.episodes && (!res.scenes || res.scenes.length === 0)) {
-       res.scenes = res.episodes.flatMap((e: any) => e.scenes || []);
-    }
+    
+    // Ensure lists exist
+    if (!res.scenes) res.scenes = [];
+    if (!res.episodes) res.episodes = [];
+    
     return res as AnalysisResult;
   } catch (e) {
     console.error("JSON Parse Error. Raw string:", jsonString);
@@ -28,8 +30,37 @@ function cleanAndParseJSON(text: string): AnalysisResult {
   }
 }
 
+// Helper: Enforce Duration Constraints via Code
+function enforceConstraints(result: AnalysisResult, customInstructions?: string): AnalysisResult {
+  if (!customInstructions) return result;
+
+  // 1. Parse constraints
+  const rateMatch = customInstructions.match(/语速≈(\d+)字\/秒/);
+  const wordsPerSecond = rateMatch ? parseInt(rateMatch[1]) : 6;
+
+  // 2. Iterate and fix
+  if (result.episodes) {
+    result.episodes.forEach(ep => {
+      ep.scenes.forEach(scene => {
+        scene.shots.forEach(shot => {
+          // Fix Duration based on Dialogue
+          if (shot.dialogue && shot.dialogue.trim() !== "" && shot.dialogue !== "（无台词）") {
+             const charCount = shot.dialogue.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "").length; // Count effective chars
+             const calculatedDuration = Math.max(1, Math.ceil(charCount / wordsPerSecond));
+             shot.duration = `${calculatedDuration}s`;
+          } else {
+             // Default for action shots if missing
+             if (!shot.duration || shot.duration === "0s") shot.duration = "2s";
+          }
+        });
+      });
+    });
+  }
+  return result;
+}
+
 // Retry helper
-async function retry<T>(fn: () => Promise<T>, retries = 1, delay = 1000): Promise<T> {
+async function retry<T>(fn: () => Promise<T>, retries = 2, delay = 2000): Promise<T> {
   try {
     return await fn();
   } catch (error: any) {
@@ -37,84 +68,99 @@ async function retry<T>(fn: () => Promise<T>, retries = 1, delay = 1000): Promis
       throw error;
     }
     const msg = error.toString().toLowerCase();
-    if (msg.includes("401") || msg.includes("403") || msg.includes("key")) throw error;
+    if (msg.includes("401") || msg.includes("403") || msg.includes("invalid key")) throw error;
+    
     if (retries <= 0) throw error;
+    
     console.warn(`API call failed, retrying... (${retries} left). Error: ${error.message}`);
     await new Promise(resolve => setTimeout(resolve, delay));
     return retry(fn, retries - 1, delay * 2);
   }
 }
 
-// System Instruction (CHINESE OPTIMIZED)
-const getSystemInstruction = (customInstructions?: string, isJsonMode = false) => {
+// System Instruction
+const getSystemInstruction = (customInstructions?: string, isJsonMode = false, isAssetExtractionOnly = false) => {
   let userConstraintBlock = "";
   
   if (customInstructions && customInstructions.trim()) {
     userConstraintBlock = `
-    ================================================================
-    *** 用户最高优先级指令 (PRIME DIRECTIVE) ***
-    用户定义了硬性约束，你必须数学级精确地遵守这些数值。
+    *** 用户核心硬性约束 (CRITICAL) ***
+    ${customInstructions}
     
-    用户指令: "${customInstructions}"
-    
-    [执行指南]:
-    1. **语速计算**: 使用提供的 "语速" (默认 4字/秒) 来计算时长。 时长 = 字数 / 语速 + 1秒缓冲。
-    2. **台词拆分 (关键)**: 如果某句台词过长导致单镜时长超标，你必须将其拆分为多个镜头。
-       - 镜头A: 说话人画面 (特写/中景)。
-       - 镜头B: 听话人反应镜头，或物体空镜头，此时台词作为画外音继续。
-       - 严禁删减台词，必须逐字保留。
-    3. **总数控制**: 通过合并或拆分镜头来逼近目标总数。
-    ================================================================
+    [特别强调]:
+    1. **台词拆分 (Split Dialogue)**: 如果一句台词按照设定语速计算超过了 "单镜头上限"，你必须将这句台词拆分为多个镜头！
+       - 镜头A: 说话人特写 (前半句)
+       - 镜头B: 听话人反应镜头/过肩镜头 (后半句)
+    2. **时长计算**: 请严格根据 "台词字数 / 语速" 估算 duration。
     `;
   }
 
+  // --- MODE 1: GLOBAL ASSET EXTRACTION (The Bible) ---
+  if (isAssetExtractionOnly) {
+    return `
+    你是一位资深电影美术指导和AI提示词专家。
+    你的任务是通读整个剧本，建立一个【全局资产库】。
+
+    ### 任务目标：
+    1. **提取核心角色**：只提取主要角色。
+    2. **提取固定场景 (Fixed Assets)**：识别剧中反复出现的关键场景（如“主角公寓”、“飞船驾驶舱”、“秘密基地”）。
+    3. **生成画面描述 (Vital)**：
+       - 对于每个场景/道具，生成一段详细的画面描述。
+       - **语言**: 简体中文。
+       - 包含：色调 (Lighting/Palette)、材质 (Material)、氛围 (Atmosphere)、建筑风格 (Style)。
+       - **不要**包含人物动作，只描述静态环境。
+    
+    ### 输出格式 (JSON Only):
+    {
+      "title": "剧本标题",
+      "synopsis": "简短梗概",
+      "characters": [
+        { "name": "角色名", "visualSummary": "外貌关键词 (中文)", "traits": "性格关键词" }
+      ],
+      "assets": [
+         { 
+           "name": "场景/物品名 (e.g. 凯的公寓)", 
+           "description": "详细的画面描述 (中文) (e.g. 赛博朋克风格公寓，电线杂乱，窗外有全息广告，霓虹蓝粉色调，电影感打光)", 
+           "type": "Location" | "Prop" 
+         }
+      ]
+    }
+    `;
+  }
+
+  // --- MODE 2: EPISODE STORYBOARD GENERATION ---
   let instruction = `
     ${userConstraintBlock}
 
-    你是一位专家级电影导演、摄影指导和剪辑师。
-    你的任务是将原始剧本转换为结构化的制作分镜表，直接用于 AI 视频生成。
+    你是一位专家级导演。任务是将剧本片段转化为分镜表。
     
-    ### 核心规则 (不可协商):
-    1. **数据零丢失 (CRITICAL):** 你必须 100% 保留所有对话。严禁总结、截断或省略任何口语台词。
-    2. **语言:** 所有输出字段（动作、环境、景别等）必须是 **简体中文**。
-    
-    3. **AI 画面提示词 (visualDescription):** 
-       - **语言:** 必须使用 **简体中文** (Simplified Chinese)。
-       - **强制公式:** 你必须严格遵守以下顺序：
-         "[景别/镜头角度] + [主体描述] + [环境/背景] + [光影/风格]"
-       
-       - **资产注入与一致性 (关键):** 
-         - **主体:** 如果镜头中出现角色（例如“凯”），你必须查找资产表中的 'visualSummary' 并填入此处（例如“凯（20岁男子，机械手臂，凌乱短发）”）。不要每次都重新发明外貌。
-         - **环境:** 如果场景头与上一镜相同，[环境] 部分必须保持一致。
-         - **起手式:** 永远以景别开头（例如“特写镜头，...”、“广角镜头，...”）。
-         - **示例:** "中景镜头，凯（20岁男子，机械手臂），正在大口吃面，赛博朋克拉面店背景，窗外霓虹雨，电影感布光，青橙色调。"
-    
-    4. **内心独白:** 如果台词是内心想法（标注为 OS, V.O. 或心声），必须在台词前加 '【内心OS】'。
-    5. **空镜头:** 如果剧本描述了风景或沉默，请创建 'dialogue' 为空的镜头。
+    ### 核心逻辑 (Context Aware):
+    你将被提供一个【全局资产库】(Global Asset Library)。
+    1. **识别固定资产**：每当你处理一个场景（Scene Header）时，检查它是否在【全局资产库】中。
+    2. **强制引用**：如果场景存在于资产库中，**必须**提取该资产的 \`description\` 作为该镜头 \`visualDescription\` 的基础背景，并结合当前的剧情动作。
+    3. **语言统一**：如果引用了英文的资产描述，请务必**翻译成中文**再放入分镜表。
 
-    ### 结构与集数:
-    - **检测集数:** 寻找 "第1集", "Episode 1", "Chapter 1" 等标题。
-    - 输出结构为 **Episodes -> Scenes -> Shots**。
-    - 如果剧本包含多集，请将其分开。如果未发现集数标题，默认归入 "第1集"。
-
-    ### 格式:
-    - 时长格式: "3s", "1.5s"。
+    ### 制作规则:
+    1. **数据零丢失**: 保留所有台词。
+    2. **语言**: **严格使用简体中文**。所有输出字段（包括 visualDescription, action, environment, shotSize, cameraAngle）都必须是中文。
+    3. **AI 画面提示词 (visualDescription)**:
+       - **必须全中文**。
+       - 格式: "[景别] + [主体动作] + [固定资产环境描述] + [光影]"
+       - 即使是固定场景，也要根据剧情微调（例如：白天/夜晚，战损状态）。
+       - 角色只写名字。
+    
+    4. **结构**: 输出必须包含 episodes 数组，即使只有一集。
   `;
 
   if (isJsonMode) {
     instruction += `
     \n### OUTPUT FORMAT
-    You must output ONLY valid JSON. 
-    Do not include markdown formatting like \`\`\`json.
-    The JSON structure must match this schema exactly:
+    JSON Only. No Markdown.
+    Schema:
     {
-      "title": "string",
-      "synopsis": "string",
-      "characters": [{ "name": "string", "visualSummary": "string", "traits": "string" }],
-      "assets": [{ "name": "string", "description": "string", "type": "Prop" | "Location" }],
       "episodes": [{
         "id": "string",
-        "title": "string",
+        "title": "string", // 必须填写，例如 "第1集"
         "scenes": [{
           "sceneId": "string",
           "header": "string",
@@ -122,7 +168,7 @@ const getSystemInstruction = (customInstructions?: string, isJsonMode = false) =
             "id": "string",
             "shotSize": "string",
             "cameraAngle": "string",
-            "visualDescription": "string (CHINESE ONLY: [景别]+[主体]+[环境]+[光影])",
+            "visualDescription": "string",
             "environment": "string",
             "characters": "string",
             "action": "string",
@@ -138,288 +184,169 @@ const getSystemInstruction = (customInstructions?: string, isJsonMode = false) =
   return instruction;
 };
 
-// --- Google Provider (REST API ONLY) ---
-
-const callGoogleRawFetch = async (
-  text: string,
-  apiKey: string,
+// --- Generic Call Helper ---
+const performLLMCall = async (
+  provider: LLMProvider,
   modelId: string,
-  customInstructions?: string,
-  baseUrl?: string,
+  userKeys: UserKeys | undefined,
+  systemPrompt: string,
+  userPrompt: string,
   signal?: AbortSignal
 ) => {
-  let rootUrl = baseUrl || "https://generativelanguage.googleapis.com";
-  rootUrl = rootUrl.replace(/\/+$/, '');
-  
-  if (rootUrl.endsWith('/models')) rootUrl = rootUrl.replace('/models', '');
-  if (rootUrl.endsWith('/v1beta')) rootUrl = rootUrl.replace('/v1beta', '');
+  if (provider === 'google') {
+    // Use @google/genai SDK
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: userPrompt,
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+        temperature: 0.2,
+      },
+    });
 
-  const url = `${rootUrl}/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+    const textContent = response.text;
+    if (!textContent) throw new Error("Google AI returned empty content.");
+    return cleanAndParseJSON(textContent);
+  } else {
+    // Other providers
+    let key = '';
+    let baseUrl = undefined;
+    switch(provider) {
+      case 'deepseek': key = userKeys?.deepseek || ''; baseUrl = userKeys?.deepseekBaseUrl; break;
+      case 'openai': key = userKeys?.openai || ''; break;
+      case 'moonshot': key = userKeys?.moonshot || ''; break;
+    }
+    if (!key) throw new Error(`请配置 ${provider.toUpperCase()} API Key`);
 
-  const payload = {
-    contents: [{
-      role: 'user',
-      parts: [{ text }]
-    }],
-    systemInstruction: {
-      parts: [{ text: getSystemInstruction(customInstructions, true) }]
-    },
-    generationConfig: {
-      responseMimeType: "application/json",
-      temperature: 0.2
-    },
-    safetySettings: [
-      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
-    ]
-  };
+    let url = baseUrl;
+    if (!url) {
+      if (provider === 'deepseek') url = 'https://api.deepseek.com/chat/completions';
+      else if (provider === 'openai') url = 'https://api.openai.com/v1/chat/completions';
+      else if (provider === 'moonshot') url = 'https://api.moonshot.cn/v1/chat/completions';
+    } else {
+      if (!url.endsWith('/chat/completions')) url = url.replace(/\/+$/, '') + '/chat/completions';
+    }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal
-  });
+    const payload: any = {
+      model: modelId,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.2,
+      max_tokens: 8000
+    };
+    if (provider !== 'deepseek' && provider !== 'moonshot') payload.response_format = { type: "json_object" };
+    payload.messages[0].content += "\n\nENSURE OUTPUT IS RAW VALID JSON. NO MARKDOWN.";
 
-  if (!response.ok) {
-    const errText = await response.text();
-    if (response.status === 404) throw new Error("404 Model Not Found. Check your Proxy URL or Model ID.");
-    if (response.status === 429) throw new Error("429 Quota Exceeded.");
-    throw new Error(`Google API Error ${response.status}: ${errText}`);
+    const response = await fetch(url!, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify(payload),
+      signal
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) throw new Error(`${provider.toUpperCase()} API Error (${response.status})`);
+    
+    const data = JSON.parse(responseText);
+    return cleanAndParseJSON(data.choices?.[0]?.message?.content);
   }
-
-  const data = await response.json();
-  const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  
-  if (!textContent) throw new Error("Google AI returned empty content.");
-  return cleanAndParseJSON(textContent);
 };
 
 
-const callGoogle = async (
-  text: string, 
-  customInstructions?: string, 
-  modelId: string = "gemini-2.5-flash", 
+// --- 1. Extract Assets Only (Step 1) ---
+export const extractAssetsOnly = async (
+  fullScript: string,
+  customInstructions: string,
+  modelId: string,
+  provider: LLMProvider,
   userKeys?: UserKeys,
   signal?: AbortSignal
-) => {
-  const apiKey = userKeys?.google || process.env.API_KEY;
-  if (!apiKey) throw new Error("Google API Key not found.");
-  return callGoogleRawFetch(text, apiKey, modelId, customInstructions, userKeys?.googleBaseUrl, signal);
+): Promise<AnalysisResult> => {
+  const systemPrompt = getSystemInstruction(customInstructions, true, true);
+  const userPrompt = `
+  [任务]: 分析完整剧本。提取角色和固定资产（场景/道具）。为每个资产生成高质量的**中文**画面描述。
+  
+  [SCRIPT START]
+  ${fullScript}
+  [SCRIPT END]
+  `;
+
+  return await retry(() => performLLMCall(provider, modelId, userKeys, systemPrompt, userPrompt, signal));
 };
 
-// --- Open Compatible Provider ---
-const callOpenAICompatible = async (
-  provider: LLMProvider,
-  apiKey: string,
-  text: string,
-  modelId: string,
-  customInstructions?: string,
-  baseUrl?: string,
-  signal?: AbortSignal
-) => {
-  let url = baseUrl;
-  
-  if (!url) {
-    if (provider === 'deepseek') url = 'https://api.deepseek.com/chat/completions';
-    else if (provider === 'openai') url = 'https://api.openai.com/v1/chat/completions';
-    else if (provider === 'moonshot') url = 'https://api.moonshot.cn/v1/chat/completions';
-  } else {
-    if (!url.endsWith('/chat/completions')) url = url.replace(/\/+$/, '') + '/chat/completions';
+// --- 2. Analyze Single Episode (Step 2) ---
+export const analyzeScript = async (
+  episodeScript: string, 
+  customInstructions?: string, 
+  modelId: string = "gemini-2.5-flash", 
+  provider: LLMProvider = 'google', 
+  userKeys?: UserKeys,
+  onProgress?: (progress: number, message: string) => void,
+  signal?: AbortSignal,
+  precomputedAssets?: AnalysisResult,
+): Promise<AnalysisResult> => {
+
+  // Global Asset Context Injection
+  let globalAssetContext = "";
+  if (precomputedAssets) {
+     globalAssetContext = `
+     ================================================================
+     *** 全局资产库 (GLOBAL ASSET LIBRARY) ***
+     
+     [核心角色]: 
+     ${JSON.stringify(precomputedAssets.characters.map(c => c.name))}
+
+     [固定场景与道具 (请使用这些描述)]: 
+     ${JSON.stringify(precomputedAssets.assets)}
+     
+     指令: 
+     检查每个场景标题。如果匹配此列表中的【场景】，
+     你必须提取对应的 description 作为该镜头 visualDescription 的基础背景，并结合当前的剧情动作。
+     注意：如果 description 是英文，请务必翻译成中文。
+     ================================================================
+     `;
   }
+
+  const systemPrompt = getSystemInstruction(customInstructions || "", true, false);
+  const userPrompt = `
+  ${globalAssetContext}
+
+  分析这集剧本并生成分镜表。输出必须是中文。
+  注意：如果这集的内容有明确的“第X集”标识，请务必更新 Episode Title。
   
-  const systemPrompt = getSystemInstruction(customInstructions, true);
-  const isDeepSeek = provider === 'deepseek';
-  const isKimi = provider === 'moonshot';
+  [EPISODE SCRIPT START]
+  ${episodeScript}
+  [EPISODE SCRIPT END]
+  `;
+
+  if (onProgress) onProgress(20, "正在分析剧情与资产匹配...");
   
-  const payload: any = {
-    model: modelId,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: text }
-    ],
-    temperature: 0.2,
-    max_tokens: 8000
+  let result = await retry(() => performLLMCall(provider, modelId, userKeys, systemPrompt, userPrompt, signal));
+  
+  // Post-Processing: Force duration constraints
+  if (onProgress) onProgress(90, "正在校准镜头时长...");
+  result = enforceConstraints(result, customInstructions);
+
+  if (onProgress) onProgress(100, "完成");
+  
+  return {
+    title: precomputedAssets?.title || result.title || "分镜分析",
+    synopsis: precomputedAssets?.synopsis || result.synopsis,
+    characters: precomputedAssets?.characters || result.characters,
+    assets: precomputedAssets?.assets || result.assets,
+    episodes: result.episodes || [],
+    scenes: result.episodes?.flatMap(e => e.scenes) || result.scenes || []
   };
-
-  if (!isDeepSeek && !isKimi) {
-    payload.response_format = { type: "json_object" };
-  }
-  
-  payload.messages[0].content += "\n\nENSURE OUTPUT IS RAW VALID JSON. NO MARKDOWN.";
-  
-  const response = await fetch(url!, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(payload),
-    signal
-  });
-
-  const responseText = await response.text();
-
-  if (!response.ok) {
-    if (response.status === 401) throw new Error(`${provider.toUpperCase()} 认证失败`);
-    if (response.status === 429) throw new Error(`${provider.toUpperCase()} 额度不足`);
-    throw new Error(`${provider.toUpperCase()} API Error (${response.status})`);
-  }
-
-  let data;
-  try {
-    data = JSON.parse(responseText);
-  } catch (e) {
-     throw new Error("Failed to parse API response JSON.");
-  }
-
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("AI returned empty message content.");
-  
-  return cleanAndParseJSON(content);
 };
 
-// --- Smart Chunking Logic (Episode-Priority) ---
-
-const CHUNK_SIZE_LIMIT = 1500; 
-
-// EXPORT THIS FUNCTION FOR UI PREVIEW
-export function smartSplitScript(text: string): string[] {
-  console.log(`[SmartSplit] 开始切分剧本。总字数: ${text.length}`);
-  
-  // 1. Split by Episode Boundaries (Lookahead regex to keep delimiters)
-  // Detect "第x集", "Episode x", "Chapter x"
-  const episodeBoundaryRegex = /(?=^(?:第\s*\d+\s*[集章]|Episode\s*\d+|Chapter\s*\d+))/m;
-  const rawEpisodes = text.split(episodeBoundaryRegex);
-
-  const finalChunks: string[] = [];
-
-  rawEpisodes.forEach((rawEp, index) => {
-    const epText = rawEp.trim();
-    if (!epText) return;
-
-    // If a single episode is still too huge, split it internally
-    if (epText.length > CHUNK_SIZE_LIMIT) {
-       console.log(`[SmartSplit] -> 集块过长 (> ${CHUNK_SIZE_LIMIT})，执行内部场景切分...`);
-       const internalChunks = splitInternal(epText);
-       finalChunks.push(...internalChunks);
-    } else {
-       finalChunks.push(epText);
-    }
-  });
-
-  // If no chunks (e.g. empty text or regex failed on weird format), return original
-  if (finalChunks.length === 0 && text.trim().length > 0) {
-      return [text];
-  }
-
-  return finalChunks;
-}
-
-// Sub-splitter for internal scene breaking
-function splitInternal(text: string): string[] {
-  const chunks: string[] = [];
-  const lines = text.split('\n');
-  let currentChunk = "";
-
-  const sceneHeaderRegex = /^(?:INT\.|EXT\.|内景|外景|日景|夜景|场景|Scene|第.+场)/i;
-
-  for (const line of lines) {
-    if (currentChunk.length + line.length > CHUNK_SIZE_LIMIT) {
-       // Priority: Split at a Scene Header
-       if (sceneHeaderRegex.test(line.trim())) {
-         if (currentChunk.trim()) chunks.push(currentChunk);
-         currentChunk = line + "\n";
-         continue;
-       }
-       
-       // Fallback: Paragraph break
-       if (line.trim() === '' && currentChunk.length > CHUNK_SIZE_LIMIT - 100) {
-          if (currentChunk.trim()) chunks.push(currentChunk);
-          currentChunk = "\n"; 
-          continue;
-       }
-
-       // Hard limit
-       if (currentChunk.length > CHUNK_SIZE_LIMIT + 200) {
-          if (currentChunk.trim()) chunks.push(currentChunk);
-          currentChunk = line + "\n";
-          continue;
-       }
-    }
-    currentChunk += line + "\n";
-  }
-
-  if (currentChunk.trim()) {
-    chunks.push(currentChunk);
-  }
-
-  return chunks;
-}
-
-export function mergeAnalysisResults(results: AnalysisResult[]): AnalysisResult {
-  if (results.length === 0) throw new Error("No results to merge");
-  
-  const merged: AnalysisResult = {
-    title: results[0].title,
-    synopsis: results[0].synopsis,
-    characters: [],
-    assets: [],
-    scenes: [],
-    episodes: []
-  };
-
-  const charMap = new Map<string, CharacterProfile>();
-  const assetMap = new Map<string, AssetProfile>();
-  const epMap = new Map<string, Episode>();
-
-  results.forEach(res => {
-    // Merge Episodes
-    if (res.episodes) {
-      res.episodes.forEach(ep => {
-        const epId = ep.id.replace(/\D/g, '') || ep.id; 
-        
-        if (epMap.has(epId)) {
-          const existingEp = epMap.get(epId)!;
-          existingEp.scenes.push(...ep.scenes);
-        } else {
-          epMap.set(epId, ep);
-          if (merged.episodes) merged.episodes.push(ep);
-        }
-      });
-    }
-
-    if (res.characters) {
-      res.characters.forEach(c => {
-        if (!charMap.has(c.name)) charMap.set(c.name, c);
-      });
-    }
-
-    if (res.assets) {
-      res.assets.forEach(a => {
-        if (!assetMap.has(a.name)) assetMap.set(a.name, a);
-      });
-    }
-  });
-
-  merged.characters = Array.from(charMap.values());
-  merged.assets = Array.from(assetMap.values());
-
-  if (merged.episodes) {
-    merged.scenes = merged.episodes.flatMap(e => e.scenes);
-  }
-
-  return merged;
-}
-
-// ... (Utils for balance check remain same)
 export const getDeepSeekBalance = async (apiKey: string, customBaseUrl?: string) => {
   let rootUrl = "https://api.deepseek.com";
-  if (customBaseUrl) {
-    rootUrl = customBaseUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/+$/, '');
-  }
+  if (customBaseUrl) rootUrl = customBaseUrl.replace(/\/chat\/completions\/?$/, '').replace(/\/+$/, '');
   try {
     const response = await fetch(`${rootUrl}/user/balance`, {
       method: 'GET',
@@ -439,6 +366,7 @@ export const getDeepSeekBalance = async (apiKey: string, customBaseUrl?: string)
 };
 
 export const validateKey = async (provider: LLMProvider, apiKey: string, baseUrl?: string) => {
+  if (provider === 'google') return true; 
   let url = baseUrl;
   if (!url) {
     if (provider === 'deepseek') url = 'https://api.deepseek.com';
@@ -459,123 +387,9 @@ export const validateKey = async (provider: LLMProvider, apiKey: string, baseUrl
   }
 };
 
-// --- Main Export ---
-export const analyzeScript = async (
-  scriptText: string, 
-  customInstructions?: string, 
-  modelId: string = "gemini-2.5-flash", 
-  provider: LLMProvider = 'google', 
-  userKeys?: UserKeys,
-  onProgress?: (progress: number, message: string) => void,
-  signal?: AbortSignal,
-  useChunking: boolean = true // Toggle for Smart Splitting
-): Promise<AnalysisResult> => {
-
-  // 1. Determine Chunks
-  // If useChunking is false, we just send the whole text as one chunk
-  const chunks = useChunking ? smartSplitScript(scriptText) : [scriptText];
-  const results: AnalysisResult[] = [];
-
-  // ROLLING CONTEXT CONTAINERS
-  const establishedCharacters: CharacterProfile[] = [];
-  const establishedAssets: AssetProfile[] = [];
-
-  for (let i = 0; i < chunks.length; i++) {
-    if (signal?.aborted) throw new Error("分析已取消");
-    
-    const baseProgress = Math.round(((i) / chunks.length) * 100);
-    
-    if (onProgress) {
-        onProgress(baseProgress, `正在分析第 ${i + 1} / ${chunks.length} 部分...`);
-    }
-    
-    // --- BUILD DYNAMIC PROMPT FOR CHUNK ---
-    let chunkInstructions = customInstructions || "";
-    
-    // Inject Rolling Context (Assets found so far)
-    if (i > 0 && useChunking) {
-       chunkInstructions += `\n\n================================================`;
-       chunkInstructions += `\n*** 上下文回忆 (CONTEXT RECALL) ***`;
-       chunkInstructions += `\n这是剧本的第 ${i+1} 部分。它可能是新的一集，或者是上一集的继续。`;
-       
-       if (establishedCharacters.length > 0 || establishedAssets.length > 0) {
-           chunkInstructions += `\n\n*** 已确立的资产 (关键) ***`;
-           chunkInstructions += `\n你必须复用以下已有的视觉定义，确保人物和场景外观一致。不要发明新的描述。`;
-           
-           const contextData = {
-               existingCharacters: establishedCharacters.map(c => ({ name: c.name, visualSummary: c.visualSummary })),
-               existingLocationsAndProps: establishedAssets.map(a => ({ name: a.name, description: a.description }))
-           };
-           chunkInstructions += `\n${JSON.stringify(contextData, null, 2)}`;
-       }
-       chunkInstructions += `\n================================================\n`;
-    }
-
-    const makeRequest = async () => {
-      // Prompt injection: Explicitly tell model to focus on THIS chunk
-      const scopedText = useChunking 
-        ? `Analyze THIS specific part of the script only. Do not hallucinate previous or future parts.\n\n[SCRIPT PART START]\n${chunks[i]}\n[SCRIPT PART END]`
-        : chunks[i];
-
-      if (provider === 'google') {
-        return await callGoogle(scopedText, chunkInstructions, modelId, userKeys, signal);
-      } else {
-        let key = '';
-        let baseUrl = undefined;
-        
-        switch(provider) {
-          case 'deepseek': 
-            key = userKeys?.deepseek || ''; 
-            baseUrl = userKeys?.deepseekBaseUrl; 
-            break;
-          case 'openai': key = userKeys?.openai || ''; break;
-          case 'moonshot': key = userKeys?.moonshot || ''; break;
-        }
-        
-        if (!key) throw new Error(`请配置 ${provider.toUpperCase()} API Key`);
-        
-        return await callOpenAICompatible(provider, key, scopedText, modelId, chunkInstructions, baseUrl, signal);
-      }
-    };
-
-    try {
-      const result = await retry(makeRequest);
-      results.push(result);
-
-      // --- UPDATE ROLLING CONTEXT ---
-      if (result.characters) {
-          result.characters.forEach(newChar => {
-              if (!establishedCharacters.find(c => c.name === newChar.name)) {
-                  establishedCharacters.push(newChar);
-              }
-          });
-      }
-      if (result.assets) {
-          result.assets.forEach(newAsset => {
-              if (!establishedAssets.find(a => a.name === newAsset.name)) {
-                  establishedAssets.push(newAsset);
-              }
-          });
-      }
-      
-      if (onProgress) {
-         onProgress(Math.round(((i + 1) / chunks.length) * 100), `完成第 ${i + 1} 部分，整理中...`);
-      }
-
-      // Small delay between chunks
-      if (i < chunks.length - 1 && useChunking) {
-        await new Promise(resolve => setTimeout(resolve, 800)); 
-      }
-
-    } catch (error: any) {
-       if (error.name === 'AbortError' || error.message?.includes('取消') || error.message?.includes('aborted')) {
-          throw error;
-       }
-       console.error(`Error processing chunk ${i + 1}:`, error);
-       throw error;
-    }
-  }
-
-  if (onProgress) onProgress(100, "正在合并最终结果...");
-  return mergeAnalysisResults(results);
-};
+export function smartSplitScript(text: string): string[] {
+  return [text];
+}
+export function mergeAnalysisResults(results: AnalysisResult[]): AnalysisResult {
+    return results[0]; 
+}

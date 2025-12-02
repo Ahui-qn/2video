@@ -23,6 +23,14 @@ export interface Episode {
   scenes: Scene[];
 }
 
+export interface ScriptEpisode {
+  id: string;
+  title: string;
+  content: string;
+  status: 'draft' | 'analyzing' | 'analyzed';
+  isExpanded: boolean;
+}
+
 export interface CharacterProfile {
   name: string;
   visualSummary: string; // For consistency (hair, clothes)
@@ -46,8 +54,8 @@ export interface AnalysisResult {
 
 export enum AppState {
   IDLE = 'IDLE',
-  PREVIEW_CHUNKS = 'PREVIEW_CHUNKS', // New state for reviewing split chunks
-  ANALYZING = 'ANALYZING',
+  EXTRACTING_CONTEXT = 'EXTRACTING_CONTEXT', // New: Extracting from full script
+  ANALYZING = 'ANALYZING', // Analyzing the specific episode
   COMPLETE = 'COMPLETE',
   ERROR = 'ERROR'
 }
