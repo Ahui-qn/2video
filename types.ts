@@ -35,12 +35,14 @@ export interface CharacterProfile {
   name: string;
   visualSummary: string; // For consistency (hair, clothes)
   traits: string;
+  imageUrls?: string[]; // Changed from single imageUrl to array
 }
 
 export interface AssetProfile {
   name: string;
   description: string;
   type: 'Prop' | 'Location';
+  imageUrls?: string[]; // Changed from single imageUrl to array
 }
 
 export interface AnalysisResult {
