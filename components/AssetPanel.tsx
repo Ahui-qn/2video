@@ -1,19 +1,53 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnalysisResult, CharacterProfile, AssetProfile } from '../types';
-import { User, Box, Copy, ImagePlus, Pencil, Check, X, Download, Maximize2 } from 'lucide-react';
+import { Copy, ImagePlus, Pencil, Check, X, Download, Plus, Trash2 } from 'lucide-react';
 
 interface AssetPanelProps {
   data: AnalysisResult;
   onUpdateImage: (type: 'character' | 'asset', index: number, files: FileList | File[]) => void;
   onUpdateText: (type: 'character' | 'asset', index: number, field: keyof CharacterProfile | keyof AssetProfile, value: string) => void;
   onRemoveImage: (type: 'character' | 'asset', index: number, imageIndex: number) => void;
+  onAddCharacter?: () => void;
+  onAddAsset?: () => void;
+  onDeleteCharacter?: (index: number) => void;
+  onDeleteAsset?: (index: number) => void;
 }
 
-export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onUpdateText, onRemoveImage }) => {
+export const AssetPanel: React.FC<AssetPanelProps> = ({ 
+    data, onUpdateImage, onUpdateText, onRemoveImage, onAddCharacter, onAddAsset, onDeleteCharacter, onDeleteAsset 
+}) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [draggingIndex, setDraggingIndex] = useState<{type: 'character' | 'asset', index: number} | null>(null);
+  
+  // Refs for auto-scrolling
+  const charactersEndRef = useRef<HTMLDivElement>(null);
+  const assetsEndRef = useRef<HTMLDivElement>(null);
+  const prevCharLength = useRef(data.characters.length);
+  const prevAssetLength = useRef(data.assets.length);
+
+  useEffect(() => {
+    // Auto scroll when a new character is added
+    if (data.characters.length > prevCharLength.current) {
+        setEditingId(`char-${data.characters.length - 1}`);
+        setTimeout(() => {
+            charactersEndRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
+    }
+    prevCharLength.current = data.characters.length;
+  }, [data.characters.length]);
+
+  useEffect(() => {
+    // Auto scroll when a new asset is added
+    if (data.assets.length > prevAssetLength.current) {
+        setEditingId(`asset-${data.assets.length - 1}`);
+        setTimeout(() => {
+            assetsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
+    }
+    prevAssetLength.current = data.assets.length;
+  }, [data.assets.length]);
+
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -61,8 +95,6 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
     document.body.removeChild(link);
   };
 
-  if (!data.characters.length && !data.assets.length) return null;
-
   return (
     <>
     <div className="h-full overflow-y-auto pr-4 pb-20 custom-scrollbar p-2">
@@ -70,7 +102,18 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
       {/* Characters */}
       <div className="mb-12">
         <h3 className="text-4xl font-black font-display text-white mb-8 tracking-tighter opacity-80">角色档案</h3>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4">
+           {/* ADD NEW CHARACTER CARD */}
+           <button 
+              onClick={onAddCharacter}
+              className="bg-white/[0.02] border border-dashed border-white/20 hover:border-[#d946ef] hover:bg-[#d946ef]/10 rounded-3xl p-6 flex flex-col items-center justify-center gap-4 transition-all group min-h-[200px]"
+           >
+               <div className="p-4 rounded-full bg-white/5 group-hover:bg-[#d946ef] text-slate-400 group-hover:text-white transition-all">
+                   <Plus size={32} />
+               </div>
+               <span className="text-sm font-bold text-slate-500 group-hover:text-white uppercase tracking-widest">点击添加新角色</span>
+           </button>
+
           {data.characters.map((char, idx) => {
              const isEditing = editingId === `char-${idx}`;
              const isDragActive = draggingIndex?.type === 'character' && draggingIndex.index === idx;
@@ -78,6 +121,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
              return (
             <div 
                 key={idx} 
+                ref={idx === data.characters.length - 1 ? charactersEndRef : null}
                 className={`bg-white/[0.02] border p-6 shadow-xl transition-all group relative overflow-visible backdrop-blur-md flex flex-col gap-6 rounded-3xl ${isDragActive ? 'border-[#d946ef] bg-[#d946ef]/10' : 'border-white/10 hover:border-[#d946ef]/50'}`}
                 onDragOver={(e) => handleDragOver(e, 'character', idx)}
                 onDragLeave={handleDragLeave}
@@ -127,6 +171,11 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
                      {!isEditing && (
                         <button onClick={() => copyToClipboard(char.visualSummary)} className="p-2 bg-[#d946ef] text-white rounded hover:scale-110 transition-transform"><Copy size={14}/></button>
                      )}
+                     {onDeleteCharacter && (
+                         <button onClick={() => { if(window.confirm('确定要删除这个角色吗？')) onDeleteCharacter(idx); }} className="p-2 bg-red-500/20 text-red-400 hover:text-white hover:bg-red-500 rounded transition-all">
+                             <Trash2 size={14} />
+                         </button>
+                     )}
                   </div>
 
                   {isEditing ? (
@@ -134,6 +183,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
                         className="text-2xl font-bold font-display text-white mb-4 bg-black/40 border border-white/20 rounded px-2 w-full outline-none focus:border-[#d946ef]"
                         value={char.name}
                         onChange={(e) => onUpdateText('character', idx, 'name', e.target.value)}
+                        placeholder="角色名称"
                       />
                   ) : (
                       <h4 className="text-3xl font-bold font-display text-white mb-4 tracking-tight">{char.name}</h4>
@@ -145,6 +195,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
                             className="text-sm text-slate-300 font-light leading-relaxed bg-black/40 border border-white/20 rounded p-2 w-full h-24 outline-none focus:border-[#d946ef] resize-none"
                             value={char.visualSummary}
                             onChange={(e) => onUpdateText('character', idx, 'visualSummary', e.target.value)}
+                            placeholder="外貌描述 (Visual Summary)"
                          />
                     ) : (
                         <p className="text-sm text-slate-300 font-light leading-relaxed opacity-80">{char.visualSummary}</p>
@@ -160,7 +211,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
                     ) : (
                         <div className="flex flex-wrap gap-2">
                             {char.traits.split(/[,，、]/).map((trait, tIdx) => (
-                                <span key={tIdx} className="text-[10px] font-bold text-[#d946ef] bg-[#d946ef]/5 border border-[#d946ef]/20 px-2 py-1 uppercase tracking-wider rounded">
+                                trait.trim() && <span key={tIdx} className="text-[10px] font-bold text-[#d946ef] bg-[#d946ef]/5 border border-[#d946ef]/20 px-2 py-1 uppercase tracking-wider rounded">
                                 {trait.trim()}
                                 </span>
                             ))}
@@ -176,7 +227,18 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
       {/* Assets */}
       <div>
         <h3 className="text-4xl font-black font-display text-white mb-8 tracking-tighter opacity-80">场景资产</h3>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4">
+           {/* ADD NEW ASSET CARD */}
+           <button 
+              onClick={onAddAsset}
+              className="bg-white/[0.02] border border-dashed border-white/20 hover:border-[#ccff00] hover:bg-[#ccff00]/10 rounded-3xl p-6 flex flex-col items-center justify-center gap-4 transition-all group min-h-[200px]"
+           >
+               <div className="p-4 rounded-full bg-white/5 group-hover:bg-[#ccff00] text-slate-400 group-hover:text-black transition-all">
+                   <Plus size={32} />
+               </div>
+               <span className="text-sm font-bold text-slate-500 group-hover:text-white uppercase tracking-widest">点击添加新资产</span>
+           </button>
+
           {data.assets.map((asset, idx) => {
             const isEditing = editingId === `asset-${idx}`;
             const isDragActive = draggingIndex?.type === 'asset' && draggingIndex.index === idx;
@@ -184,6 +246,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
             return (
             <div 
                 key={idx} 
+                ref={idx === data.assets.length - 1 ? assetsEndRef : null}
                 className={`bg-white/[0.02] border p-6 shadow-xl transition-all group relative overflow-visible backdrop-blur-md flex flex-col gap-6 rounded-3xl ${isDragActive ? 'border-[#ccff00] bg-[#ccff00]/10' : 'border-white/10 hover:border-[#ccff00]/50'}`}
                 onDragOver={(e) => handleDragOver(e, 'asset', idx)}
                 onDragLeave={handleDragLeave}
@@ -232,6 +295,11 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
                      {!isEditing && (
                         <button onClick={() => copyToClipboard(asset.description)} className="p-2 bg-[#ccff00] text-black rounded hover:scale-110 transition-transform"><Copy size={14}/></button>
                      )}
+                     {onDeleteAsset && (
+                         <button onClick={() => { if(window.confirm('确定要删除这个资产吗？')) onDeleteAsset(idx); }} className="p-2 bg-red-500/20 text-red-400 hover:text-white hover:bg-red-500 rounded transition-all">
+                             <Trash2 size={14} />
+                         </button>
+                     )}
                   </div>
                   
                   <div className="flex items-center gap-3 mb-4">
@@ -243,6 +311,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
                             className="text-xl font-bold font-display text-white bg-black/40 border border-white/20 rounded px-2 w-full outline-none focus:border-[#ccff00]"
                             value={asset.name}
                             onChange={(e) => onUpdateText('asset', idx, 'name', e.target.value)}
+                            placeholder="资产名称"
                         />
                     ) : (
                         <h4 className="text-2xl font-bold font-display text-white truncate">{asset.name}</h4>
@@ -254,6 +323,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({ data, onUpdateImage, onU
                             className="text-sm text-slate-300 font-light leading-relaxed bg-black/40 border border-white/20 rounded p-2 w-full h-24 outline-none focus:border-[#ccff00] resize-none"
                             value={asset.description}
                             onChange={(e) => onUpdateText('asset', idx, 'description', e.target.value)}
+                            placeholder="画面描述"
                          />
                     ) : (
                         <p className="text-sm text-slate-300 font-light leading-relaxed border-l-2 border-white/10 pl-4 opacity-80">

@@ -1,6 +1,5 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload, Trash2, Loader2, CloudUpload, Sliders, ChevronUp, ChevronDown, Clock, Hash, Mic2, AlertCircle, Lock, CheckCircle2, Plus, Sparkles } from 'lucide-react';
+import { Upload, Trash2, Loader2, CloudUpload, Sliders, ChevronUp, ChevronDown, AlertCircle, Lock, CheckCircle2, Plus, Sparkles } from 'lucide-react';
 import { readFileContent } from '../services/fileService';
 import { ScriptEpisode } from '../types';
 
@@ -25,6 +24,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   
   const activeEpisode = episodes.find(e => e.isExpanded);
+  const hasExpanded = !!activeEpisode;
 
   const [maxDuration, setMaxDuration] = useState('');
   const [shotCount, setShotCount] = useState('');
@@ -120,11 +120,16 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
 
   return (
     <div 
-      className={`flex flex-col h-full bg-[#0f0518]/60 backdrop-blur-2xl border-t border-l border-white/10 border-r border-b border-black/50 rounded-3xl transition-all duration-500 overflow-hidden shadow-[10px_10px_30px_rgba(0,0,0,0.5)] relative ${isDragging ? 'border-[#ccff00] shadow-[0_0_50px_rgba(204,255,0,0.2)]' : ''} ${locked ? 'opacity-50 grayscale' : ''}`}
+      className={`flex flex-col h-full bg-[#0f0518] relative ${isDragging ? 'shadow-[0_0_50px_rgba(204,255,0,0.2)]' : ''} ${locked ? 'opacity-50 grayscale' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* HEADER */}
+      <div className="px-4 py-2 border-b border-white/5 bg-black/20 text-xs font-bold text-slate-500 uppercase tracking-widest shrink-0">
+          剧本分集 (EPISODES)
+      </div>
+
       {/* Locked Overlay */}
       {locked && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm cursor-not-allowed">
@@ -134,35 +139,50 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
       )}
 
       {/* Main List Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 flex flex-col gap-2">
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 flex flex-col min-h-0">
         {episodes.map((ep, index) => {
           const isExpanded = ep.isExpanded;
           const charCount = ep.content.length;
           const isOverLimit = charCount > 2500;
           const isActive = ep.id === activeEpisode?.id;
-
+          const isHidden = hasExpanded && !isActive;
+          
           return (
              <div 
                key={ep.id} 
-               className={`transition-all duration-300 border backdrop-blur-md group/card overflow-hidden flex flex-col shrink-0 ${
-                 isExpanded 
-                   ? 'bg-black/40 border-[#ccff00] rounded-2xl shadow-[0_0_20px_rgba(204,255,0,0.1)]' 
-                   : 'bg-white/5 border-white/5 rounded-xl hover:bg-white/10 cursor-pointer hover:border-white/10'
-               }`}
-               onClick={() => !locked && onExpandEpisode(ep.id)}
+               className={`
+                 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]
+                 border backdrop-blur-md group/card overflow-hidden flex flex-col shrink-0 relative
+                 
+                 ${isHidden
+                     ? 'max-h-0 opacity-0 mb-0 border-0 pointer-events-none' 
+                     : 'opacity-100 scale-100'
+                 }
+                 
+                 ${!isHidden && !isExpanded
+                     ? 'max-h-[60px] mb-2 bg-white/5 border-white/5 rounded-xl hover:bg-white/10 cursor-pointer hover:border-white/10' 
+                     : ''
+                 }
+                 
+                 ${isExpanded
+                     ? 'flex-1 max-h-full mb-2 bg-black/40 border-[#ccff00] rounded-2xl shadow-[0_0_20px_rgba(204,255,0,0.1)]'
+                     : ''
+                 }
+               `}
+               onClick={() => !locked && !isHidden && onExpandEpisode(ep.id)}
              >
                 {/* Header */}
-                <div className={`px-4 py-3 flex items-center justify-between shrink-0 ${isExpanded ? 'border-b border-[#ccff00]/20' : ''}`}>
-                   <div className="flex items-center gap-3">
-                      <div className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold font-mono transition-all ${
+                <div className={`px-4 py-3 flex items-center justify-between shrink-0 relative ${isExpanded ? 'border-b border-[#ccff00]/20' : ''}`}>
+                   <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold font-mono transition-all shrink-0 ${
                           ep.status === 'analyzed' ? 'bg-[#ccff00] text-black' : 
                           ep.status === 'analyzing' ? 'bg-[#d946ef] text-white animate-pulse' :
                           'bg-white/10 text-slate-500'
                       }`}>
                           {ep.status === 'analyzed' ? <CheckCircle2 size={10} /> : (index + 1)}
                       </div>
-                      <div className="flex flex-col">
-                          <span className={`text-xs font-bold tracking-tight uppercase ${isExpanded ? 'text-white' : 'text-slate-400 group-hover/card:text-slate-200'}`}>{ep.title}</span>
+                      <div className="flex flex-col min-w-0">
+                          <span className={`text-xs font-bold tracking-tight uppercase truncate ${isExpanded ? 'text-white' : 'text-slate-400 group-hover/card:text-slate-200'}`}>{ep.title}</span>
                           {!isExpanded && (
                               <span className="text-[10px] text-slate-600 font-mono truncate max-w-[150px]">
                                 {getPreviewTitle(ep.content)}
@@ -171,26 +191,43 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                       </div>
                    </div>
                    
-                   <div className="flex items-center gap-2">
+                   {/* Controls - Using a separate container with stopPropagation to isolate events */}
+                   <div 
+                      className="flex items-center gap-2 shrink-0 z-50 isolate" 
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                   >
                       {!locked && (
                         <button
+                          type="button"
+                          onMouseDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
                               e.stopPropagation();
                               onDeleteEpisode(ep.id);
                           }}
-                          className="p-1.5 text-slate-500 hover:text-red-500 hover:bg-white/5 rounded-full transition-all hover:scale-110 opacity-0 group-hover/card:opacity-100"
+                          className="p-2 text-slate-500 hover:text-red-500 hover:bg-white/10 rounded-full transition-all cursor-pointer z-50"
                           title="删除此集"
                         >
-                            <Trash2 size={12} />
+                            <Trash2 size={14} className="pointer-events-none" />
                         </button>
                       )}
-                      {isExpanded ? <ChevronUp size={14} className="text-[#ccff00]" /> : <ChevronDown size={14} className="text-slate-600" />}
+                      <button 
+                        type="button"
+                        onClick={(e) => {
+                            e.preventDefault(); 
+                            e.stopPropagation();
+                            if(!locked && !isHidden) onExpandEpisode(ep.id);
+                        }} 
+                        className="cursor-pointer p-1 text-slate-400 hover:text-white"
+                      >
+                        {isExpanded ? <ChevronUp size={14} className="text-[#ccff00]" /> : <ChevronDown size={14} />}
+                      </button>
                    </div>
                 </div>
 
                 {/* Expanded Content */}
                 {isExpanded && (
-                   <div className="relative animate-fade-in flex flex-col h-[65vh] min-h-[400px]" onClick={(e) => e.stopPropagation()}>
+                   <div className="relative animate-fade-in flex flex-col flex-1 min-h-0 cursor-default" onClick={(e) => e.stopPropagation()}>
                        {/* Toolbar */}
                        <div className="absolute top-3 right-5 flex items-center gap-2 z-10">
                           {ep.content && (
@@ -273,7 +310,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
 
       {/* Fixed Add Button (Purple Box Area) */}
       {!locked && (
-        <div className="px-3 py-3 border-t border-white/5 bg-[#0f0518] shrink-0 z-10">
+        <div className="px-3 py-3 border-t border-white/5 bg-[#0f0518] shrink-0 z-10 h-auto opacity-100">
             <button 
                 onClick={onAddEpisode}
                 className="w-full py-3 bg-[#2a2a2a] hover:bg-[#353535] border border-white/10 hover:border-[#d946ef] rounded-lg text-slate-400 hover:text-[#d946ef] transition-all flex items-center justify-center gap-2 text-xs font-bold tracking-widest uppercase shadow-lg group"
