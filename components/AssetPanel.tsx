@@ -172,9 +172,12 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
                         <button onClick={() => copyToClipboard(char.visualSummary)} className="p-2 bg-[#d946ef] text-white rounded hover:scale-110 transition-transform"><Copy size={14}/></button>
                      )}
                      {onDeleteCharacter && (
-                         <button onClick={() => { if(window.confirm('确定要删除这个角色吗？')) onDeleteCharacter(idx); }} className="p-2 bg-red-500/20 text-red-400 hover:text-white hover:bg-red-500 rounded transition-all">
-                             <Trash2 size={14} />
-                         </button>
+                       <button
+                         onClick={() => onDeleteCharacter(idx)}
+                         className="p-2 bg-red-500/20 text-red-400 hover:text-white hover:bg-red-500 rounded transition-all"
+                       >
+                         <Trash2 size={14} />
+                       </button>
                      )}
                   </div>
 
@@ -296,9 +299,12 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
                         <button onClick={() => copyToClipboard(asset.description)} className="p-2 bg-[#ccff00] text-black rounded hover:scale-110 transition-transform"><Copy size={14}/></button>
                      )}
                      {onDeleteAsset && (
-                         <button onClick={() => { if(window.confirm('确定要删除这个资产吗？')) onDeleteAsset(idx); }} className="p-2 bg-red-500/20 text-red-400 hover:text-white hover:bg-red-500 rounded transition-all">
-                             <Trash2 size={14} />
-                         </button>
+                       <button
+                         onClick={() => onDeleteAsset(idx)}
+                         className="p-2 bg-red-500/20 text-red-400 hover:text-white hover:bg-red-500 rounded transition-all"
+                       >
+                         <Trash2 size={14} />
+                       </button>
                      )}
                   </div>
                   

@@ -10,6 +10,15 @@ export default defineConfig(({ mode }) => {
         host: '0.0.0.0',
       },
       plugins: [react()],
+      // 允许使用顶层 await（pdfjs-dist 需要），只面向现代浏览器
+      build: {
+        target: 'esnext',
+      },
+      optimizeDeps: {
+        esbuildOptions: {
+          target: 'esnext',
+        },
+      },
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)

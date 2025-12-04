@@ -25,6 +25,84 @@ const MODELS: ModelConfig[] = [
   { id: 'deepseek-chat', name: 'DeepSeek V3', provider: 'deepseek' },
 ];
 
+// 简单的示例数据，方便本地调试时无需每次上传剧本
+const MOCK_ANALYSIS: AnalysisResult = {
+  title: '示例项目：地铁邂逅',
+  synopsis: '在深夜的地铁站，两位陌生人因为一次错过的末班车而相遇，展开一段短暂却难忘的对话。',
+  characters: [
+    {
+      name: '阿青',
+      visualSummary: '二十多岁的年轻女生，短发，背着帆布包，穿浅色卫衣和牛仔裤，眼神有点疲惫但很温柔',
+      traits: '内向、细腻、喜欢观察周围的人和事'
+    },
+    {
+      name: '阿哲',
+      visualSummary: '三十岁左右的上班族，黑色风衣，手里拿着公文包和咖啡，眼神专注，略带一点疲惫',
+      traits: '理性、礼貌、有点社恐的都市打工人'
+    }
+  ],
+  assets: [
+    {
+      name: '深夜地铁站月台',
+      description: '空荡的地铁站月台，冷白色日光灯把地面照得很亮，墙面是略微旧的瓷砖，地上有黄色安全线，远处电子屏幕显示“末班车已发出”，整体色调偏冷，偶尔有广播回声，带一点孤独感和电影感',
+      type: 'Location'
+    },
+    {
+      name: '候车长椅',
+      description: '金属材质的长椅，表面反着冷白色灯光，有几处被磨得发亮，旁边是垃圾桶和地铁线路图，大面积的留白让画面很安静',
+      type: 'Prop'
+    }
+  ],
+  episodes: [
+    {
+      id: '1',
+      title: '第 1 集',
+      scenes: [
+        {
+          sceneId: '1',
+          header: '深夜地铁站月台',
+          shots: [
+            {
+              id: '1',
+              shotSize: '大全景',
+              cameraAngle: '平视',
+              visualDescription: '大全景，空荡的地铁站月台，冷白色日光灯把整个平台照得很亮，远处电子屏幕微微闪烁，画面带一点孤独的电影感',
+              environment: '深夜的地下空间，空气略微潮湿，背景广播声回荡，整体色调偏冷蓝',
+              characters: '',
+              action: '画面中暂时没有人物，只是展示空间与氛围，为后续人物出场做铺垫',
+              dialogue: '（无台词）',
+              duration: '3s'
+            },
+            {
+              id: '2',
+              shotSize: '中景',
+              cameraAngle: '平视',
+              visualDescription: '中景，阿青坐在候车长椅上，低头看手机，身后是一整面略旧的白色瓷砖墙和路线图',
+              environment: '长椅旁边是垃圾桶和地铁线路图，顶部灯光有轻微频闪，空间依旧安静',
+              characters: '阿青',
+              action: '阿青安静地刷着手机，偶尔抬头看一眼已经停住的电子屏幕，又继续低头',
+              dialogue: '（无台词）',
+              duration: '4s'
+            },
+            {
+              id: '3',
+              shotSize: '近景',
+              cameraAngle: '平视',
+              visualDescription: '近景，阿哲的手拿着一杯一次性纸杯咖啡，咖啡表面轻轻晃动，背景是略微虚化的月台',
+              environment: '灯光在纸杯表面形成高光和阴影的对比，远处偶尔有列车经过的风声回音',
+              characters: '阿哲',
+              action: '阿哲走进画面，下意识看了一眼时间，拿着咖啡在月台边缘停下脚步',
+              dialogue: '（无台词）',
+              duration: '3s'
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  scenes: []
+};
+
 const App: React.FC = () => {
   // --- STATE ---
   const [episodes, setEpisodes] = useState<ScriptEpisode[]>([INITIAL_EPISODE]);
@@ -53,6 +131,85 @@ const App: React.FC = () => {
   // --- LAYOUT RESIZING STATE ---
   const [layout, setLayout] = useState({ left: 320, right: 350 });
   const isResizing = useRef<'left' | 'right' | null>(null);
+  // 回收站（最多保留 50 条）
+  type RecycleItem =
+    | {
+        id: string;
+        category: 'episode';
+        label: string;
+        createdAt: number;
+        data: { episode: ScriptEpisode };
+      }
+    | {
+        id: string;
+        category: 'shot';
+        label: string;
+        createdAt: number;
+        data: { episodeIndex: number; sceneIndex: number; shot: Shot };
+      }
+    | {
+        id: string;
+        category: 'character';
+        label: string;
+        createdAt: number;
+        data: { character: CharacterProfile; index: number };
+      }
+    | {
+        id: string;
+        category: 'asset';
+        label: string;
+        createdAt: number;
+        data: { asset: AssetProfile; index: number };
+      };
+
+  const [recycleBin, setRecycleBin] = useState<RecycleItem[]>([]);
+  const [showRecycleBin, setShowRecycleBin] = useState(false);
+
+  // 统一删除确认弹窗状态
+  const [pendingDelete, setPendingDelete] = useState<
+    | { type: 'episode'; id: string; title: string }
+    | { type: 'shot'; episodeIndex: number; sceneIndex: number; shotIndex: number; label: string }
+    | { type: 'character'; index: number; name: string }
+    | { type: 'asset'; index: number; name: string }
+    | null
+  >(null);
+
+  const addToRecycleBin = (item: RecycleItem) => {
+    setRecycleBin(prev => {
+      // 去重：同一条数据在回收站里只保留一份
+      const deduped = prev.filter(existing => {
+        if (existing.category !== item.category) return true;
+        if (item.category === 'shot' && existing.category === 'shot') {
+          const a = existing.data;
+          const b = item.data;
+          return !(
+            a.episodeIndex === b.episodeIndex &&
+            a.sceneIndex === b.sceneIndex &&
+            a.shot.id === b.shot.id
+          );
+        }
+        if (item.category === 'episode' && existing.category === 'episode') {
+          return existing.data.episode.id !== item.data.episode.id;
+        }
+        if (item.category === 'character' && existing.category === 'character') {
+          return existing.data.character.name !== item.data.character.name;
+        }
+        if (item.category === 'asset' && existing.category === 'asset') {
+          return existing.data.asset.name !== item.data.asset.name;
+        }
+        return true;
+      });
+
+      const next = [{ ...item }, ...deduped];
+      return next.length > 50 ? next.slice(0, 50) : next;
+    });
+  };
+
+  // 开发调试用：一键加载示例数据，避免每次都上传剧本
+  const handleLoadMockProject = () => {
+    setGlobalAssets(MOCK_ANALYSIS);
+    setResult(MOCK_ANALYSIS);
+  };
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -159,20 +316,48 @@ const App: React.FC = () => {
       setEpisodes(prev => [...prev.map(e => ({...e, isExpanded: false})), newEp]);
   };
 
-  const handleDeleteEpisode = (id: string) => {
+  const actuallyDeleteEpisode = (id: string) => {
     if (episodes.length <= 1) {
-        alert("至少保留一集");
-        return;
+      alert("至少保留一集");
+      return;
     }
-    if (window.confirm("确定要删除这一集吗？此操作不可撤销。")) {
-        setEpisodes(prev => prev.filter(e => e.id !== id));
-        if (result && result.episodes) {
-             setResult(prev => prev ? ({
-                 ...prev,
-                 episodes: prev.episodes?.filter(e => e.id !== id)
-             }) : null);
+    const targetEpisode = episodes.find(e => e.id === id);
+    if (targetEpisode) {
+      addToRecycleBin({
+        id: `episode-${targetEpisode.id}-${Date.now()}`,
+        category: 'episode',
+        label: targetEpisode.title || '未命名剧集',
+        createdAt: Date.now(),
+        data: { episode: targetEpisode }
+      });
+    }
+    setEpisodes(prev => {
+      const filtered = prev.filter(e => e.id !== id);
+      const renumbered = filtered.map((ep, index) => {
+        const match = ep.title.match(/^第\s*\d+\s*集(.*)$/);
+        if (match) {
+          const suffix = match[1] || "";
+          return {
+            ...ep,
+            title: `第 ${index + 1} 集${suffix}`,
+          };
         }
+        return ep;
+      });
+      return renumbered;
+    });
+    if (result && result.episodes) {
+      setResult(prev => prev ? ({
+        ...prev,
+        episodes: prev.episodes?.filter(e => e.id !== id)
+      }) : null);
     }
+  };
+
+  const handleDeleteEpisode = (id: string) => {
+    const target = episodes.find(e => e.id === id);
+    if (!target) return;
+    setPendingDelete({ type: 'episode', id, title: target.title || "这一集" });
   };
 
   const processContextFile = useCallback(async (file: File) => {
@@ -329,25 +514,25 @@ const App: React.FC = () => {
   };
 
   const handleDeleteCharacter = (index: number) => {
-    const update = (data: AnalysisResult | null) => {
-      if (!data) return null;
-      const newChars = [...data.characters];
-      newChars.splice(index, 1);
-      return { ...data, characters: newChars };
-    };
-    setGlobalAssets(prev => update(prev));
-    setResult(prev => update(prev));
+    const source = globalAssets || result;
+    const char = source?.characters[index];
+    if (!char) return;
+    setPendingDelete({
+      type: 'character',
+      index,
+      name: char.name || `角色 #${index + 1}`
+    });
   };
 
   const handleDeleteAsset = (index: number) => {
-    const update = (data: AnalysisResult | null) => {
-      if (!data) return null;
-      const newAssets = [...data.assets];
-      newAssets.splice(index, 1);
-      return { ...data, assets: newAssets };
-    };
-    setGlobalAssets(prev => update(prev));
-    setResult(prev => update(prev));
+    const source = globalAssets || result;
+    const asset = source?.assets[index];
+    if (!asset) return;
+    setPendingDelete({
+      type: 'asset',
+      index,
+      name: asset.name || `资产 #${index + 1}`
+    });
   };
 
   const handleAddShot = (episodeIndex: number, sceneIndex: number, insertIndex?: number) => {
@@ -386,20 +571,18 @@ const App: React.FC = () => {
   };
 
   const handleDeleteShot = (episodeIndex: number, sceneIndex: number, shotIndex: number) => {
-      if (!result) return;
-      if (!result.episodes) return;
-      if (!window.confirm("确定删除这个镜头吗？")) return;
-
-      const newEpisodes = [...result.episodes];
-      const newScenes = [...newEpisodes[episodeIndex].scenes];
-      const newShots = [...newScenes[sceneIndex].shots];
-      
-      newShots.splice(shotIndex, 1);
-      
-      newScenes[sceneIndex] = { ...newScenes[sceneIndex], shots: newShots };
-      newEpisodes[episodeIndex] = { ...newEpisodes[episodeIndex], scenes: newScenes };
-      
-      setResult({ ...result, episodes: newEpisodes, scenes: newEpisodes.flatMap(e => e.scenes) });
+      if (!result || !result.episodes) return;
+      const ep = result.episodes[episodeIndex];
+      const scene = ep?.scenes[sceneIndex];
+      const shot = scene?.shots[shotIndex];
+      if (!shot) return;
+      setPendingDelete({
+        type: 'shot',
+        episodeIndex,
+        sceneIndex,
+        shotIndex,
+        label: `镜头 #${shot.id}`
+      });
   };
 
   // --- Image Upload Handler for Assets (Supports multiple) ---
@@ -704,6 +887,323 @@ const App: React.FC = () => {
 
       <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} userKeys={userKeys} onSave={handleSaveKeys} />
       
+      {/* 回收站面板 */}
+      {showRecycleBin && (
+        <div
+          className="fixed inset-0 z-[105] flex items-center justify-end bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowRecycleBin(false)}
+        >
+          <div
+            className="w-full max-w-lg h-full bg-[#05030a]/95 border-l border-white/10 shadow-[0_0_60px_rgba(217,70,239,0.35)] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-mono uppercase tracking-[0.25em] text-slate-500 mb-1">
+                  Recycle Bin
+                </div>
+                <div className="text-lg font-display font-bold text-white">
+                  回收站 <span className="text-xs text-slate-500 ml-2">最近 {recycleBin.length} / 50 条</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowRecycleBin(false)}
+                className="px-3 py-1.5 rounded-xl text-[10px] font-bold bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10"
+              >
+                关闭
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-3 space-y-4">
+              {/* 剧本分集 */}
+              <div>
+                <div className="text-[11px] font-mono uppercase tracking-[0.25em] text-slate-500 mb-2">
+                  剧本分集
+                </div>
+                {recycleBin.filter(i => i.category === 'episode').length === 0 ? (
+                  <div className="text-xs text-slate-600">暂无删除的剧本分集。</div>
+                ) : (
+                  recycleBin
+                    .filter(i => i.category === 'episode')
+                    .map(item => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 mb-1"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-xs text-white font-semibold">{item.label}</span>
+                          <span className="text-[10px] text-slate-500">
+                            {new Date(item.createdAt).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <button
+                          className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-[#ccff00]/15 text-[#ccff00] hover:bg-[#ccff00]/25 border border-[#ccff00]/50"
+                          onClick={() => {
+                            setRecycleBin(prev => prev.filter(x => x.id !== item.id));
+                            const epItem = item as Extract<RecycleItem, { category: 'episode' }>;
+                            const recovered = epItem.data.episode;
+                            setEpisodes(prev => {
+                              const next = [...prev, recovered];
+                              // 简单根据顺序重排标题
+                              return next.map((ep, index) => {
+                                const match = ep.title.match(/^第\s*\d+\s*集(.*)$/);
+                                if (match) {
+                                  const suffix = match[1] || "";
+                                  return { ...ep, title: `第 ${index + 1} 集${suffix}` };
+                                }
+                                return ep;
+                              });
+                            });
+                          }}
+                        >
+                          恢复
+                        </button>
+                      </div>
+                    ))
+                )}
+              </div>
+              {/* 分镜表 */}
+              <div>
+                <div className="text-[11px] font-mono uppercase tracking-[0.25em] text-slate-500 mb-2">
+                  分镜表
+                </div>
+                {recycleBin.filter(i => i.category === 'shot').length === 0 ? (
+                  <div className="text-xs text-slate-600">暂无删除的分镜。</div>
+                ) : (
+                  recycleBin
+                    .filter(i => i.category === 'shot')
+                    .map(item => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 mb-1"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-xs text-white font-semibold">{item.label}</span>
+                          <span className="text-[10px] text-slate-500">
+                            {new Date(item.createdAt).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <button
+                          className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-[#d946ef]/15 text-[#d946ef] hover:bg-[#d946ef]/25 border border-[#d946ef]/50"
+                          onClick={() => {
+                            setRecycleBin(prev => prev.filter(x => x.id !== item.id));
+                            const shotItem = item as Extract<RecycleItem, { category: 'shot' }>;
+                            const { episodeIndex, sceneIndex, shot } = shotItem.data;
+                            setResult(prev => {
+                              if (!prev || !prev.episodes) return prev;
+                              const eps = [...prev.episodes];
+                              const ep = eps[episodeIndex];
+                              if (!ep) return prev;
+                              const scenes = [...ep.scenes];
+                              const scene = scenes[sceneIndex];
+                              if (!scene) return prev;
+                              const shots = [...scene.shots, shot];
+                              scenes[sceneIndex] = { ...scene, shots };
+                              eps[episodeIndex] = { ...ep, scenes };
+                              return { ...prev, episodes: eps, scenes: eps.flatMap(e => e.scenes) };
+                            });
+                          }}
+                        >
+                          恢复
+                        </button>
+                      </div>
+                    ))
+                )}
+              </div>
+              {/* 全局资产库 */}
+              <div>
+                <div className="text-[11px] font-mono uppercase tracking-[0.25em] text-slate-500 mb-2">
+                  全局资产库
+                </div>
+                {recycleBin.filter(i => i.category === 'character' || i.category === 'asset').length === 0 ? (
+                  <div className="text-xs text-slate-600">暂无删除的角色或资产。</div>
+                ) : (
+                  recycleBin
+                    .filter(i => i.category === 'character' || i.category === 'asset')
+                    .map(item => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between px-3 py-2 rounded-xl bg白/5 border border-white/10 mb-1"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-[10px] uppercase text-slate-500">
+                            {item.category === 'character' ? '角色' : '资产'}
+                          </span>
+                          <span className="text-xs text-white font-semibold">{item.label}</span>
+                          <span className="text-[10px] text-slate-500">
+                            {new Date(item.createdAt).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <button
+                          className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-[#38bdf8]/15 text-[#38bdf8] hover:bg-[#38bdf8]/25 border border-[#38bdf8]/50"
+                          onClick={() => {
+                            setRecycleBin(prev => prev.filter(x => x.id !== item.id));
+                            if (item.category === 'character') {
+                              const charItem = item as Extract<RecycleItem, { category: 'character' }>;
+                              const character = charItem.data.character;
+                              const appendChar = (data: AnalysisResult | null) => {
+                                if (!data) return null;
+                                return { ...data, characters: [...data.characters, character] };
+                              };
+                              setGlobalAssets(prev => appendChar(prev));
+                              setResult(prev => appendChar(prev));
+                            } else if (item.category === 'asset') {
+                              const assetItem = item as Extract<RecycleItem, { category: 'asset' }>;
+                              const asset = assetItem.data.asset;
+                              const appendAsset = (data: AnalysisResult | null) => {
+                                if (!data) return null;
+                                return { ...data, assets: [...data.assets, asset] };
+                              };
+                              setGlobalAssets(prev => appendAsset(prev));
+                              setResult(prev => appendAsset(prev));
+                            }
+                          }}
+                        >
+                          恢复
+                        </button>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 自定义删除确认弹窗（剧本分集 / 分镜表 / 资产统一使用） */}
+      {pendingDelete && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-xl"
+          onClick={() => setPendingDelete(null)}
+        >
+          <div
+            className="relative w-full max-w-md mx-4 rounded-3xl border border-white/10 bg-[#05030a]/95 shadow-[0_0_80px_rgba(217,70,239,0.4)] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="absolute -top-24 -left-24 w-56 h-56 bg-[#ccff00]/20 blur-3xl" />
+              <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-[#d946ef]/25 blur-3xl" />
+            </div>
+            <div className="relative px-6 pt-6 pb-5">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-9 h-9 rounded-2xl bg-red-500/15 border border-red-400/30 flex items-center justify-center">
+                  <Square size={14} className="text-red-400" />
+                </div>
+                <div className="text-xs font-mono uppercase tracking-[0.25em] text-slate-500">
+                  Danger Zone
+                </div>
+              </div>
+              <h2 className="text-xl md:text-2xl font-display font-bold text-white mb-2 leading-snug">
+                你确定要删除这个
+                <span className="text-[#ccff00]">
+                  「
+                  {pendingDelete.type === 'episode' && pendingDelete.title}
+                  {pendingDelete.type === 'shot' && pendingDelete.label}
+                  {pendingDelete.type === 'character' && pendingDelete.name}
+                  {pendingDelete.type === 'asset' && pendingDelete.name}
+                  」
+                </span>
+                吗？
+              </h2>
+              <p className="text-sm text-slate-400 leading-relaxed">
+                等下找不回来了你就要来找我麻烦了。<br />
+                不过别慌，我已经给你留了个小小的回收站，但也只帮你保留最近 50 条删除记录。
+              </p>
+              <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+                <button
+                  onClick={() => setPendingDelete(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-white/5 text-slate-200 hover:bg-white/10 transition-all border border-white/10"
+                >
+                  算了，留着
+                </button>
+                <button
+                  onClick={() => {
+                    const current = pendingDelete;
+                    if (!current) return;
+                    setPendingDelete(null);
+                    if (current.type === 'episode') {
+                      actuallyDeleteEpisode(current.id);
+                    } else if (current.type === 'shot') {
+                      setResult(prev => {
+                        if (!prev || !prev.episodes) return prev;
+                        const eps = [...prev.episodes];
+                        const targetEp = eps[current.episodeIndex];
+                        if (!targetEp) return prev;
+                        const scenes = [...targetEp.scenes];
+                        const targetScene = scenes[current.sceneIndex];
+                        if (!targetScene) return prev;
+                        const shots = [...targetScene.shots];
+                        const shot = shots[current.shotIndex];
+                        if (!shot) return prev;
+                        addToRecycleBin({
+                          id: `shot-${shot.id}-${Date.now()}`,
+                          category: 'shot',
+                          label: `镜头 #${shot.id}`,
+                          createdAt: Date.now(),
+                          data: {
+                            episodeIndex: current.episodeIndex,
+                            sceneIndex: current.sceneIndex,
+                            shot
+                          }
+                        });
+                        shots.splice(current.shotIndex, 1);
+                        scenes[current.sceneIndex] = { ...targetScene, shots };
+                        eps[current.episodeIndex] = { ...targetEp, scenes };
+                        return { ...prev, episodes: eps, scenes: eps.flatMap(e => e.scenes) };
+                      });
+                    } else if (current.type === 'character') {
+                      const idx = current.index;
+                      const snapshot = globalAssets || result;
+                      const toDelete = snapshot?.characters[idx];
+                      if (toDelete) {
+                        addToRecycleBin({
+                          id: `character-${idx}-${Date.now()}`,
+                          category: 'character',
+                          label: toDelete.name || `角色 #${idx + 1}`,
+                          createdAt: Date.now(),
+                          data: { character: toDelete, index: idx }
+                        });
+                      }
+                      const update = (data: AnalysisResult | null) => {
+                        if (!data) return null;
+                        const newChars = [...data.characters];
+                        newChars.splice(idx, 1);
+                        return { ...data, characters: newChars };
+                      };
+                      setGlobalAssets(prev => update(prev));
+                      setResult(prev => update(prev));
+                    } else if (current.type === 'asset') {
+                      const idx = current.index;
+                      const snapshot = globalAssets || result;
+                      const toDelete = snapshot?.assets[idx];
+                      if (toDelete) {
+                        addToRecycleBin({
+                          id: `asset-${idx}-${Date.now()}`,
+                          category: 'asset',
+                          label: toDelete.name || `资产 #${idx + 1}`,
+                          createdAt: Date.now(),
+                          data: { asset: toDelete, index: idx }
+                        });
+                      }
+                      const update = (data: AnalysisResult | null) => {
+                        if (!data) return null;
+                        const newAssets = [...data.assets];
+                        newAssets.splice(idx, 1);
+                        return { ...data, assets: newAssets };
+                      };
+                      setGlobalAssets(prev => update(prev));
+                      setResult(prev => update(prev));
+                    }
+                  }}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold bg-red-500/20 text-red-300 hover:bg-red-500/30 hover:text-red-50 transition-all border border-red-400/40 shadow-[0_0_25px_rgba(248,113,113,0.35)]"
+                >
+                  狠心删除
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* GLOBAL CONTEXT LOADING OVERLAY - Z:100 (Only for full script extraction) */}
       {appState === AppState.EXTRACTING_CONTEXT && (
           <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-[#0f0518]/90 backdrop-blur-xl">
@@ -781,6 +1281,13 @@ const App: React.FC = () => {
               <button onClick={() => setShowSettings(true)} className="p-2 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-colors">
                 <Settings size={18} />
               </button>
+              
+              <button
+                onClick={() => setShowRecycleBin(true)}
+                className="px-3 py-1.5 rounded-xl text-[10px] font-bold bg-white/5 text-slate-300 hover:bg-[#d946ef]/20 hover:text-white border border-white/10 hover:border-[#d946ef]/60 transition-all font-mono uppercase tracking-widest"
+              >
+                回收站
+              </button>
 
               {appState === AppState.ANALYZING || appState === AppState.EXTRACTING_CONTEXT ? (
                 <button onClick={handleStopAnalysis} className="px-6 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold uppercase hover:bg-red-500/30 transition-all flex items-center gap-2">
@@ -805,9 +1312,15 @@ const App: React.FC = () => {
                       <UploadCloud size={48} className="text-slate-500 group-hover:text-[#ccff00] transition-colors" />
                   </div>
                   <h1 className="text-6xl font-display font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-500 mt-8 mb-4">初始化项目</h1>
-                  <p className="text-slate-400 font-mono text-xs max-w-md uppercase tracking-wider">
-                      上传完整剧本以生成全局资产库
+                  <p className="text-slate-400 font-mono text-xs max-w-md uppercase tracking-wider mb-4">
+                      上传完整剧本以生成全局资产库，或先加载一个示例项目
                   </p>
+                  <button
+                    onClick={handleLoadMockProject}
+                    className="mt-2 px-5 py-2 rounded-xl text-xs font-bold bg-[#ccff00]/10 text-[#ccff00] border border-[#ccff00]/40 hover:bg-[#ccff00]/20 hover:border-[#ccff00] transition-all"
+                  >
+                    一键加载示例项目
+                  </button>
                </div>
             </div>
           )}
