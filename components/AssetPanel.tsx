@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnalysisResult, CharacterProfile, AssetProfile } from '../types';
-import { Copy, ImagePlus, Pencil, Check, X, Download, Plus, Trash2 } from 'lucide-react';
+import { Copy, ImagePlus, Pencil, Check, X, Download, Plus, Trash2, Search } from 'lucide-react';
 
 interface AssetPanelProps {
   data: AnalysisResult;
@@ -19,6 +19,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [draggingIndex, setDraggingIndex] = useState<{type: 'character' | 'asset', index: number} | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   
   // Refs for auto-scrolling
   const charactersEndRef = useRef<HTMLDivElement>(null);
@@ -95,9 +96,83 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
     document.body.removeChild(link);
   };
 
+  // 搜索过滤逻辑
+  const filteredCharacters = useMemo(() => {
+    if (!searchQuery.trim()) return data.characters;
+    const query = searchQuery.toLowerCase().trim();
+    return data.characters.filter(char => 
+      char.name.toLowerCase().includes(query) ||
+      char.visualSummary.toLowerCase().includes(query) ||
+      char.traits.toLowerCase().includes(query)
+    );
+  }, [data.characters, searchQuery]);
+
+  const filteredAssets = useMemo(() => {
+    if (!searchQuery.trim()) return data.assets;
+    const query = searchQuery.toLowerCase().trim();
+    return data.assets.filter(asset => 
+      asset.name.toLowerCase().includes(query) ||
+      asset.description.toLowerCase().includes(query) ||
+      asset.type.toLowerCase().includes(query)
+    );
+  }, [data.assets, searchQuery]);
+
   return (
     <>
     <div className="h-full overflow-y-auto pr-4 pb-20 custom-scrollbar p-2">
+      
+      {/* Search Box */}
+      <div className="sticky top-0 z-10 mb-6 pb-4 pt-2 -mx-2 px-2">
+        <div className="relative group/search">
+          {/* 毛玻璃背景容器 */}
+          <div className="absolute inset-0 bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-transparent backdrop-blur-2xl rounded-2xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] group-hover/search:border-white/20 transition-all"></div>
+          
+          {/* 内容层 */}
+          <div className="relative">
+            {/* 搜索图标 */}
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10">
+              <div className="p-1.5 rounded-lg bg-white/5 backdrop-blur-sm">
+                <Search size={14} className="text-slate-400 group-hover/search:text-[#d946ef] transition-colors" />
+              </div>
+            </div>
+            
+            {/* 输入框 */}
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜索角色、场景、道具..."
+              className="w-full pl-12 pr-12 py-3.5 bg-white/[0.06] backdrop-blur-xl border-0 rounded-2xl text-sm text-white placeholder-slate-500/70 focus:outline-none focus:ring-2 focus:ring-[#d946ef]/50 focus:bg-white/[0.1] transition-all duration-300 font-mono shadow-inner"
+            />
+            
+            {/* 清除按钮 */}
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 backdrop-blur-sm transition-all group/clear z-10"
+              >
+                <X size={12} className="text-slate-400 group-hover/clear:text-white transition-colors" />
+              </button>
+            )}
+          </div>
+          
+          {/* 搜索结果统计 */}
+          {searchQuery && (
+            <div className="mt-3 ml-1 flex items-center gap-3">
+              <div className="px-3 py-1.5 rounded-xl bg-[#d946ef]/10 backdrop-blur-sm border border-[#d946ef]/20">
+                <span className="text-xs text-[#d946ef] font-bold font-mono">
+                  {filteredCharacters.length} 角色
+                </span>
+              </div>
+              <div className="px-3 py-1.5 rounded-xl bg-[#ccff00]/10 backdrop-blur-sm border border-[#ccff00]/20">
+                <span className="text-xs text-[#ccff00] font-bold font-mono">
+                  {filteredAssets.length} 资产
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
       
       {/* Characters */}
       <div className="mb-12">
@@ -114,7 +189,8 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
                <span className="text-sm font-bold text-slate-500 group-hover:text-white uppercase tracking-widest">点击添加新角色</span>
            </button>
 
-          {data.characters.map((char, idx) => {
+          {filteredCharacters.map((char, originalIdx) => {
+             const idx = data.characters.indexOf(char); // 获取原始索引
              const isEditing = editingId === `char-${idx}`;
              const isDragActive = draggingIndex?.type === 'character' && draggingIndex.index === idx;
 
@@ -242,7 +318,8 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
                <span className="text-sm font-bold text-slate-500 group-hover:text-white uppercase tracking-widest">点击添加新资产</span>
            </button>
 
-          {data.assets.map((asset, idx) => {
+          {filteredAssets.map((asset, originalIdx) => {
+            const idx = data.assets.indexOf(asset); // 获取原始索引
             const isEditing = editingId === `asset-${idx}`;
             const isDragActive = draggingIndex?.type === 'asset' && draggingIndex.index === idx;
 
@@ -341,6 +418,17 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
           )})}
         </div>
       </div>
+
+      {/* No Results Message */}
+      {searchQuery && filteredCharacters.length === 0 && filteredAssets.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="p-4 rounded-full bg-white/5 mb-4">
+            <Search size={32} className="text-slate-600" />
+          </div>
+          <p className="text-sm text-slate-500 font-mono">未找到匹配的结果</p>
+          <p className="text-xs text-slate-600 mt-2">尝试使用其他关键词搜索</p>
+        </div>
+      )}
     </div>
 
     {/* Lightbox Modal */}

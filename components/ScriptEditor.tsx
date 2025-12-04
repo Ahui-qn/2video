@@ -126,8 +126,23 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
       onDrop={handleDrop}
     >
       {/* HEADER */}
-      <div className="px-4 py-2 border-b border-white/5 bg-black/20 text-xs font-bold text-slate-500 uppercase tracking-widest shrink-0">
-          剧本分集 (EPISODES)
+      <div className="px-4 py-2 border-b border-white/5 bg-black/20 text-xs font-bold text-slate-500 uppercase tracking-widest shrink-0 flex items-center justify-between">
+          <span>剧本分集 (EPISODES)</span>
+          {activeEpisode && !locked && (
+            <label 
+              className={`cursor-pointer px-2.5 py-1 rounded bg-[#ccff00]/10 hover:bg-[#ccff00]/20 text-[#ccff00] text-[10px] font-bold border border-[#ccff00]/20 transition-all flex items-center gap-1.5 ${isProcessingFile || isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''}`} 
+            >
+              {isProcessingFile ? <Loader2 size={10} className="animate-spin" /> : <Upload size={10} />}
+              <span>导入</span>
+              <input 
+                type="file" 
+                accept=".txt,.md,.fountain,.docx,.pdf" 
+                onChange={handleFileUpload} 
+                className="hidden" 
+                disabled={isAnalyzing || isProcessingFile}
+              />
+            </label>
+          )}
       </div>
 
       {/* Locked Overlay */}
@@ -197,20 +212,6 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                       onClick={(e) => e.stopPropagation()}
                       onMouseDown={(e) => e.stopPropagation()}
                    >
-                      {!locked && (
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteEpisode(ep.id);
-                          }}
-                          className="p-2 text-slate-500 hover:text-red-500 hover:bg-white/10 rounded-full transition-all cursor-pointer z-50"
-                          title="删除此集"
-                        >
-                            <Trash2 size={14} className="pointer-events-none" />
-                        </button>
-                      )}
                       <button 
                         type="button"
                         onClick={(e) => {
@@ -239,20 +240,6 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                               <Trash2 size={12} />
                             </button>
                           )}
-                          <label 
-                            className={`cursor-pointer px-3 py-1 rounded bg-[#ccff00]/10 hover:bg-[#ccff00]/20 text-[#ccff00] text-[10px] font-bold border border-[#ccff00]/20 transition-all flex items-center gap-1.5 ${isProcessingFile || isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''}`} 
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {isProcessingFile ? <Loader2 size={10} className="animate-spin" /> : <Upload size={10} />}
-                            <span>导入</span>
-                            <input 
-                              type="file" 
-                              accept=".txt,.md,.fountain,.docx,.pdf" 
-                              onChange={handleFileUpload} 
-                              className="hidden" 
-                              disabled={isAnalyzing || isProcessingFile}
-                            />
-                          </label>
                        </div>
 
                        {/* Text Area */}
