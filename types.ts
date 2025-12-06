@@ -9,6 +9,19 @@ export interface Shot {
   action: string;
   dialogue: string;
   duration: string; // e.g., "3s"
+  imageUrls?: string[]; // For storyboard images
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  creator: string;
+  description: string;
+  coverImage: string | null;
+  createdAt: number;
+  updatedAt: number;
+  data: AnalysisResult | null; // Persist the analysis result with the project
+  episodes: ScriptEpisode[]; // Persist episodes
 }
 
 export interface Scene {

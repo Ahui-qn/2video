@@ -24,10 +24,11 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
   // Refs for auto-scrolling
   const charactersEndRef = useRef<HTMLDivElement>(null);
   const assetsEndRef = useRef<HTMLDivElement>(null);
-  const prevCharLength = useRef(data.characters.length);
-  const prevAssetLength = useRef(data.assets.length);
+  const prevCharLength = useRef(data?.characters?.length || 0);
+  const prevAssetLength = useRef(data?.assets?.length || 0);
 
   useEffect(() => {
+    if (!data) return;
     // Auto scroll when a new character is added
     if (data.characters.length > prevCharLength.current) {
         setEditingId(`char-${data.characters.length - 1}`);
@@ -36,9 +37,10 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
         }, 100);
     }
     prevCharLength.current = data.characters.length;
-  }, [data.characters.length]);
+  }, [data?.characters?.length]);
 
   useEffect(() => {
+    if (!data) return;
     // Auto scroll when a new asset is added
     if (data.assets.length > prevAssetLength.current) {
         setEditingId(`asset-${data.assets.length - 1}`);
@@ -47,7 +49,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
         }, 100);
     }
     prevAssetLength.current = data.assets.length;
-  }, [data.assets.length]);
+  }, [data?.assets?.length]);
 
 
   const copyToClipboard = (text: string) => {
@@ -96,8 +98,17 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
     document.body.removeChild(link);
   };
 
+  if (!data) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-slate-500 font-mono text-xs h-full">
+        <p>未检测到资产库，请先分析剧本生成资产</p>
+      </div>
+    );
+  }
+
   // 搜索过滤逻辑
   const filteredCharacters = useMemo(() => {
+    if (!data?.characters) return [];
     if (!searchQuery.trim()) return data.characters;
     const query = searchQuery.toLowerCase().trim();
     return data.characters.filter(char => 
@@ -105,9 +116,10 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
       char.visualSummary.toLowerCase().includes(query) ||
       char.traits.toLowerCase().includes(query)
     );
-  }, [data.characters, searchQuery]);
+  }, [data?.characters, searchQuery]);
 
   const filteredAssets = useMemo(() => {
+    if (!data?.assets) return [];
     if (!searchQuery.trim()) return data.assets;
     const query = searchQuery.toLowerCase().trim();
     return data.assets.filter(asset => 
@@ -115,7 +127,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
       asset.description.toLowerCase().includes(query) ||
       asset.type.toLowerCase().includes(query)
     );
-  }, [data.assets, searchQuery]);
+  }, [data?.assets, searchQuery]);
 
   return (
     <>
@@ -177,7 +189,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
       {/* Characters */}
       <div className="mb-12">
         <h3 className="text-4xl font-black font-display text-white mb-8 tracking-tighter opacity-80">角色档案</h3>
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
            {/* ADD NEW CHARACTER CARD */}
            <button 
               onClick={onAddCharacter}
@@ -306,7 +318,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
       {/* Assets */}
       <div>
         <h3 className="text-4xl font-black font-display text-white mb-8 tracking-tighter opacity-80">场景资产</h3>
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
            {/* ADD NEW ASSET CARD */}
            <button 
               onClick={onAddAsset}
