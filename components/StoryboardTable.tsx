@@ -10,9 +10,10 @@ interface StoryboardTableProps {
   onDeleteShot?: (episodeIndex: number, sceneIndex: number, shotIndex: number) => void;
   onInsertShot?: (episodeIndex: number, sceneIndex: number, insertIndex: number) => void;
   onSaveEpisode?: (episodeId: string, scenes: Scene[]) => Promise<void>; // Async for status
+  onAddHistory?: (summary: string) => void;
 }
 
-export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episodes, onUpdateShot, onAddShot, onDeleteShot, onInsertShot, onSaveEpisode }) => {
+export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episodes, onUpdateShot, onAddShot, onDeleteShot, onInsertShot, onSaveEpisode, onAddHistory }) => {
   const [collapsedEpisodes, setCollapsedEpisodes] = useState<number[]>([]);
   const [editingEpisodeId, setEditingEpisodeId] = useState<string | null>(null);
   const [localEpisodes, setLocalEpisodes] = useState<Episode[]>([]);
@@ -150,6 +151,34 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
     document.body.removeChild(link);
   };
 
+  const handleShotDrop = (e: React.DragEvent, epIndex: number, sceneIndex: number, shotIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer.files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+
+    const episode = sourceEpisodes[epIndex];
+    const isEditing = editingEpisodeId === episode.id;
+
+    if (isEditing) {
+         handleImageUpload(episode.id, sceneIndex, shotIndex, file);
+    } else {
+         // Direct upload
+         const reader = new FileReader();
+         reader.onload = (ev) => {
+             const url = ev.target?.result as string;
+             const currentUrls = episode.scenes[sceneIndex].shots[shotIndex].imageUrls || [];
+             if (currentUrls.length >= 2) {
+                 alert("最多只能上传两张图片");
+                 return;
+             }
+             onUpdateShot(epIndex, sceneIndex, shotIndex, 'imageUrls', [...currentUrls, url]);
+             if (onAddHistory) onAddHistory(`上传了图片到镜头 #${episode.scenes[sceneIndex].shots[shotIndex].id}`);
+         };
+         reader.readAsDataURL(file);
+    }
+  };
+
   if (sourceEpisodes.length === 0) return null; 
 
   return (
@@ -171,7 +200,11 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
         const isEditing = editingEpisodeId === episode.id;
 
         return (
-          <div key={episode.id} className={`mb-8 transition-all duration-500 ${isCollapsed ? 'opacity-50 grayscale hover:grayscale-0 hover:opacity-100' : ''}`}>
+          <div 
+            key={episode.id} 
+            className={`mb-8 transition-all duration-500 ${isCollapsed ? 'opacity-50 grayscale hover:grayscale-0 hover:opacity-100' : ''}`}
+            onDoubleClick={() => !isEditing && handleEnterEdit(episode)}
+          >
             
             {/* --- HEADER --- */}
             <div 
@@ -193,15 +226,7 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
 
                  {/* EDIT CONTROLS */}
                  <div className="flex items-center gap-2">
-                    {!isEditing ? (
-                        <button 
-                            onClick={() => handleEnterEdit(episode)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[#d946ef]/50 transition-all text-xs font-bold text-slate-400 hover:text-white"
-                        >
-                            <Edit3 size={12} />
-                            修改
-                        </button>
-                    ) : (
+                    {isEditing && (
                         <>
                             {saveStatus === 'error' && <span className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={12}/> 保存失败</span>}
                             {saveStatus === 'success' && <span className="text-xs text-green-500 flex items-center gap-1"><CheckCircle2 size={12}/> 保存成功</span>}
@@ -261,7 +286,11 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
                                     </div>
                                 )}
 
-                                <div className={`group/shot relative flex gap-3 p-3 rounded-xl transition-all my-1 z-20 ${isEditing ? 'bg-black/40 border border-white/10' : 'bg-transparent border border-transparent hover:bg-white/5'}`}>
+                                <div 
+                                    className={`group/shot relative flex gap-3 p-3 rounded-xl transition-all my-1 z-20 border-b border-white/5 last:border-0 ${isEditing ? 'bg-black/40 border border-white/10' : 'bg-transparent hover:bg-white/5'}`}
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={(e) => handleShotDrop(e, epIndex, sceneIndex, shotIndex)}
+                                >
                                     
                                     {/* 1. INDEX Column */}
                                     <div className="flex flex-col items-center justify-start pt-1 gap-2 w-8 shrink-0">

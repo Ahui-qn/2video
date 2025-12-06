@@ -6,8 +6,8 @@ import { UploadScriptModal } from './UploadScriptModal';
 import { SettingsModal } from './SettingsModal';
 import { analyzeScript, extractAssetsOnly } from '../services/geminiService';
 import { readFileContent } from '../services/fileService';
-import { AppState, AnalysisResult, Shot, ModelConfig, UserKeys, ScriptEpisode, CharacterProfile, AssetProfile, Project } from '../types';
-import { Download, Clapperboard, Sparkles, Settings, ChevronDown, Cpu, Moon, Square, ArrowLeft, Layers, Image as ImageIcon } from 'lucide-react';
+import { AppState, AnalysisResult, Shot, ModelConfig, UserKeys, ScriptEpisode, CharacterProfile, AssetProfile, Project, HistoryRecord } from '../types';
+import { Download, Clapperboard, Sparkles, Settings, ChevronDown, Cpu, Moon, Square, ArrowLeft, Layers, Image as ImageIcon, History as HistoryIcon, Trash2 } from 'lucide-react';
 
 interface WorkspaceProps {
   project: Project;
@@ -35,14 +35,23 @@ const MODELS: ModelConfig[] = [
 export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSaveProject }) => {
   // --- STATE ---
   const [activeView, setActiveView] = useState<'storyboard' | 'assets'>('storyboard');
-  const [episodes, setEpisodes] = useState<ScriptEpisode[]>(project.episodes || [INITIAL_EPISODE]);
-  const [customInstructions, setCustomInstructions] = useState('【硬性约束：单镜头<3s；每集镜头≈21；语速≈6字/秒】\n');
+
+  // --- 核心状态管理 (Core State Management) ---
+  // 管理整个应用的分析状态 (idle, analyzing, etc.)
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
+  // 存储分析结果 (分镜、资产)
   const [result, setResult] = useState<AnalysisResult | null>(project.data);
-  const [globalAssets, setGlobalAssets] = useState<AnalysisResult | null>(project.data); // Use project data as initial global assets
+  // 剧本分集列表
+  const [episodes, setEpisodes] = useState<ScriptEpisode[]>(project.episodes || [INITIAL_EPISODE]);
+  // 全局资产库 (角色、场景等)
+  const [globalAssets, setGlobalAssets] = useState<AnalysisResult | null>(project.data);
+
+  const [customInstructions, setCustomInstructions] = useState('【硬性约束：单镜头<3s；每集镜头≈21；语速≈6字/秒】\n');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState(MODELS[0].id);
   const [showSettings, setShowSettings] = useState(false);
+  const [history, setHistory] = useState<HistoryRecord[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [userKeys, setUserKeys] = useState<UserKeys>({});
   
   // Modals
@@ -82,6 +91,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
   const handleSaveKeys = (keys: UserKeys) => {
     setUserKeys(keys);
     localStorage.setItem('script2video_keys', JSON.stringify(keys));
+  };
+
+  const addHistory = (summary: string) => {
+      const newRecord: HistoryRecord = {
+          id: Date.now().toString(),
+          timestamp: Date.now(),
+          summary,
+          user: 'User' // Default user for now
+      };
+      setHistory(prev => {
+          const newHistory = [newRecord, ...prev];
+          if (newHistory.length > 50) return newHistory.slice(0, 50);
+          return newHistory;
+      });
   };
 
   const getSelectedModel = () => MODELS.find(m => m.id === selectedModelId) || MODELS[0];
@@ -628,7 +651,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all bg-[#ccff00]/10 text-[#ccff00] hover:bg-[#ccff00]/20 hover:text-[#ccff00] border border-[#ccff00]/20`}
               >
                   <Sparkles size={14} />
-                  <span>自动生成分镜表</span>
+                  <span>自动生成资产</span>
               </button>
               <div className="w-px h-6 bg-white/10"></div>
 
@@ -658,6 +681,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                 </div>
               </div>
 
+              <button onClick={() => setShowHistory(!showHistory)} className={`p-2 rounded-xl hover:bg-white/10 transition-colors ${showHistory ? 'text-[#ccff00] bg-white/10' : 'text-slate-400 hover:text-white'}`}>
+                <HistoryIcon size={18} />
+              </button>
+
               <button onClick={() => setShowSettings(true)} className="p-2 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-colors">
                 <Settings size={18} />
               </button>
@@ -685,9 +712,42 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
 
             <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} userKeys={userKeys} onSave={handleSaveKeys} />
 
+            {/* History Panel */}
+            {showHistory && (
+                <div className="absolute top-16 right-4 w-80 bg-[#0f0518]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl z-50 flex flex-col max-h-[80vh] animate-fade-in">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                            <HistoryIcon size={14} className="text-[#ccff00]" />
+                            修改记录
+                        </h3>
+                        <button onClick={() => setHistory([])} className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1" title="清空记录">
+                            <Trash2 size={12} /> 清空
+                        </button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                        {history.length === 0 ? (
+                            <div className="text-center py-8 text-xs text-slate-500">暂无修改记录</div>
+                        ) : (
+                            history.map(record => (
+                                <div key={record.id} className="p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-colors border border-white/5">
+                                    <div className="flex justify-between items-start mb-1">
+                                        <span className="text-[10px] font-bold text-[#ccff00] bg-[#ccff00]/10 px-1.5 py-0.5 rounded">{record.user}</span>
+                                        <span className="text-[10px] text-slate-500 font-mono">{new Date(record.timestamp).toLocaleTimeString()}</span>
+                                    </div>
+                                    <p className="text-xs text-slate-300 leading-relaxed">{record.summary}</p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* View Switching */}
-            {activeView === 'assets' ? (
-                <div className="w-full h-full p-4">
+            <div className="relative flex-1 w-full h-full overflow-hidden">
+                {/* Assets View */}
+                <div 
+                    className={`absolute inset-0 w-full h-full p-4 transition-all duration-200 ease-in-out ${activeView === 'assets' ? 'opacity-100 z-10 translate-x-0' : 'opacity-0 z-0 -translate-x-4 pointer-events-none'}`}
+                >
                     <div className="w-full h-full bg-[#0f0518]/60 backdrop-blur-2xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative">
                         <AssetPanel 
                             data={result || globalAssets} 
@@ -698,11 +758,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                             onAddAsset={handleAddAsset}
                             onDeleteCharacter={handleDeleteCharacter}
                             onDeleteAsset={handleDeleteAsset}
+                            onAddHistory={addHistory}
                           />
                     </div>
                 </div>
-            ) : (
-                <div className="flex w-full h-full gap-4">
+
+                {/* Storyboard View */}
+                <div 
+                    className={`absolute inset-0 flex w-full h-full gap-4 transition-all duration-200 ease-in-out ${activeView === 'storyboard' ? 'opacity-100 z-10 translate-x-0' : 'opacity-0 z-0 translate-x-4 pointer-events-none'}`}
+                >
                     {/* 1. LEFT PANEL: Script Editor */}
                     <div style={{ width: layout.left }} className="flex flex-col min-w-[250px] shrink-0 bg-[#0f0518]/60 backdrop-blur-2xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative transition-width duration-0">
                          <ScriptEditor 
@@ -716,6 +780,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                             setCustomInstructions={setCustomInstructions} 
                             isAnalyzing={appState === AppState.ANALYZING || appState === AppState.EXTRACTING_CONTEXT} 
                             locked={false}
+                            onAddHistory={addHistory}
                         />
                     </div>
 
@@ -757,16 +822,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                                     onDeleteShot={handleDeleteShot}
                                     onInsertShot={handleAddShot}
                                     onSaveEpisode={handleSaveEpisode}
+                                    onAddHistory={addHistory}
                                  />
                             </div>
                         ) : (
                             <div className="flex-1 flex items-center justify-center text-slate-600 font-mono text-xs">
-                                 <p>请点击「自动生成分镜表」开始创作</p>
+                                 <p>请点击「自动生成资产」开始创作</p>
                             </div>
                         )}
                     </div>
                 </div>
-            )}
+            </div>
         </main>
     </div>
   );

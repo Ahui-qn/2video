@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Upload, Trash2, Loader2, CloudUpload, Sliders, ChevronUp, ChevronDown, AlertCircle, Lock, CheckCircle2, Plus, Sparkles } from 'lucide-react';
+import { Upload, Trash2, Loader2, CloudUpload, Sliders, ChevronUp, ChevronDown, AlertCircle, Lock, CheckCircle2, Plus, Sparkles, Edit3, Save, X } from 'lucide-react';
 import { readFileContent } from '../services/fileService';
 import { ScriptEpisode } from '../types';
 
@@ -11,24 +11,54 @@ interface ScriptEditorProps {
   onAnalyzeEpisode: (id: string) => void;
   onDeleteEpisode: (id: string) => void;
   customInstructions: string;
-  setCustomInstructions: (s: string) => void;
+  setCustomInstructions: (val: string) => void;
   isAnalyzing: boolean;
-  locked?: boolean;
+  locked: boolean;
+  onAddHistory?: (summary: string) => void;
 }
 
 export const ScriptEditor: React.FC<ScriptEditorProps> = ({ 
-  episodes, onUpdateEpisode, onExpandEpisode, onAddEpisode, onAnalyzeEpisode, onDeleteEpisode, customInstructions, setCustomInstructions, isAnalyzing, locked
+  episodes, onUpdateEpisode, onExpandEpisode, onAddEpisode, onAnalyzeEpisode, onDeleteEpisode, customInstructions, setCustomInstructions, isAnalyzing, locked, onAddHistory
 }) => {
+  // --- 组件内部状态 (Local State) ---
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   
+  // 编辑模式状态：记录当前正在编辑哪一集的内容
+  const [editingContentId, setEditingContentId] = useState<string | null>(null);
+  // 临时内容缓存，用于编辑时的实时输入，避免频繁触发上层更新
+  const [tempContent, setTempContent] = useState('');
+
   const activeEpisode = episodes.find(e => e.isExpanded);
   const hasExpanded = !!activeEpisode;
 
   const [maxDuration, setMaxDuration] = useState('');
   const [shotCount, setShotCount] = useState('');
   const [speakingRate, setSpeakingRate] = useState('4'); 
+
+  // ... (useEffect remains same)
+
+  const startEditing = (ep: ScriptEpisode) => {
+    setEditingContentId(ep.id);
+    setTempContent(ep.content);
+  };
+
+  const cancelEditing = () => {
+    setEditingContentId(null);
+    setTempContent('');
+  };
+
+  const saveContent = (ep: ScriptEpisode) => {
+    onUpdateEpisode(ep.id, { content: tempContent });
+    setEditingContentId(null);
+    if (onAddHistory) onAddHistory(`更新了 ${ep.title} 的剧本内容`);
+  };
+
+  const handleStatusChange = (ep: ScriptEpisode, newStatus: any) => {
+      onUpdateEpisode(ep.id, { status: newStatus });
+      if (onAddHistory) onAddHistory(`更新了 ${ep.title} 的状态为 ${newStatus}`);
+  };
 
   useEffect(() => {
     const match = customInstructions.match(/【硬性约束：(.*?)】/);
@@ -128,21 +158,6 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
       {/* HEADER */}
       <div className="px-4 py-2 border-b border-white/5 bg-black/20 text-xs font-bold text-slate-500 uppercase tracking-widest shrink-0 flex items-center justify-between">
           <span>剧本分集 (EPISODES)</span>
-          {activeEpisode && !locked && (
-            <label 
-              className={`cursor-pointer px-2.5 py-1 rounded bg-[#ccff00]/10 hover:bg-[#ccff00]/20 text-[#ccff00] text-[10px] font-bold border border-[#ccff00]/20 transition-all flex items-center gap-1.5 ${isProcessingFile || isAnalyzing ? 'opacity-50 cursor-not-allowed' : ''}`} 
-            >
-              {isProcessingFile ? <Loader2 size={10} className="animate-spin" /> : <Upload size={10} />}
-              <span>导入</span>
-              <input 
-                type="file" 
-                accept=".txt,.md,.fountain,.docx,.pdf" 
-                onChange={handleFileUpload} 
-                className="hidden" 
-                disabled={isAnalyzing || isProcessingFile}
-              />
-            </label>
-          )}
       </div>
 
       {/* Locked Overlay */}
@@ -157,8 +172,10 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 flex flex-col min-h-0">
         {episodes.map((ep, index) => {
           const isExpanded = ep.isExpanded;
-          const charCount = ep.content.length;
-          const isOverLimit = charCount > 2500;
+          const isEditing = editingContentId === ep.id;
+          const displayContent = isEditing ? tempContent : ep.content;
+          const charCount = displayContent.length;
+          const isOverLimit = charCount > 1500;
           const isActive = ep.id === activeEpisode?.id;
           const isHidden = hasExpanded && !isActive;
           
@@ -166,7 +183,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
              <div 
                key={ep.id} 
                className={`
-                 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]
+                 transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]
                  border backdrop-blur-md group/card overflow-hidden flex flex-col shrink-0 relative
                  
                  ${isHidden
@@ -175,7 +192,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                  }
                  
                  ${!isHidden && !isExpanded
-                     ? 'max-h-[60px] mb-2 bg-white/5 border-white/5 rounded-xl hover:bg-white/10 cursor-pointer hover:border-white/10' 
+                     ? 'max-h-[80px] mb-2 bg-white/5 border-white/5 rounded-xl hover:bg-white/10 cursor-pointer hover:border-white/10' 
                      : ''
                  }
                  
@@ -184,18 +201,32 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                      : ''
                  }
                `}
-               onClick={() => !locked && !isHidden && onExpandEpisode(ep.id)}
+               onClick={() => !locked && !isHidden && !isExpanded && onExpandEpisode(ep.id)}
              >
                 {/* Header */}
-                <div className={`px-4 py-3 flex items-center justify-between shrink-0 relative ${isExpanded ? 'border-b border-[#ccff00]/20' : ''}`}>
+                <div className={`px-4 py-4 flex items-center justify-between shrink-0 relative ${isExpanded ? 'border-b border-[#ccff00]/20' : ''}`}>
                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold font-mono transition-all shrink-0 ${
-                          ep.status === 'analyzed' ? 'bg-[#ccff00] text-black' : 
-                          ep.status === 'analyzing' ? 'bg-[#d946ef] text-white animate-pulse' :
-                          'bg-white/10 text-slate-500'
-                      }`}>
-                          {ep.status === 'analyzed' ? <CheckCircle2 size={10} /> : (index + 1)}
+                      {/* Status Dropdown */}
+                      <div 
+                        className="relative z-50"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                          <select 
+                            value={ep.status || 'draft'} 
+                            onChange={(e) => handleStatusChange(ep, e.target.value)}
+                            className={`appearance-none w-16 h-6 rounded flex items-center justify-center text-[10px] font-bold font-mono transition-all shrink-0 cursor-pointer outline-none text-center
+                                ${ep.status === 'analyzed' || ep.status === 'completed' ? 'bg-green-500 text-black' : 
+                                  ep.status === 'analyzing' ? 'bg-blue-500 text-white animate-pulse' : 
+                                  'bg-slate-600 text-white'}
+                            `}
+                            disabled={locked || isAnalyzing}
+                          >
+                             <option value="draft">待生成</option>
+                             <option value="analyzing">生成中</option>
+                             <option value="completed">已完成</option>
+                          </select>
                       </div>
+
                       <div className="flex flex-col min-w-0">
                           <span className={`text-xs font-bold tracking-tight uppercase truncate ${isExpanded ? 'text-white' : 'text-slate-400 group-hover/card:text-slate-200'}`}>{ep.title}</span>
                           {!isExpanded && (
@@ -206,12 +237,21 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                       </div>
                    </div>
                    
-                   {/* Controls - Using a separate container with stopPropagation to isolate events */}
+                   {/* Controls */}
                    <div 
                       className="flex items-center gap-2 shrink-0 z-50 isolate" 
                       onClick={(e) => e.stopPropagation()}
-                      onMouseDown={(e) => e.stopPropagation()}
                    >
+                      {isExpanded && !isEditing && (
+                          <button 
+                            onClick={() => startEditing(ep)}
+                            className="p-1.5 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded transition-all"
+                            title="编辑内容"
+                          >
+                              <Edit3 size={12} />
+                          </button>
+                      )}
+                      
                       <button 
                         type="button"
                         onClick={(e) => {
@@ -229,65 +269,66 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                 {/* Expanded Content */}
                 {isExpanded && (
                    <div className="relative animate-fade-in flex flex-col flex-1 min-h-0 cursor-default" onClick={(e) => e.stopPropagation()}>
-                       {/* Toolbar */}
-                       <div className="absolute top-3 right-5 flex items-center gap-2 z-10">
-                          {ep.content && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); handleClear(); }}
-                              className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-white/5 rounded transition-all"
-                              title="清空内容"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          )}
-                       </div>
-
                        {/* Text Area */}
                        <textarea
-                        className="flex-1 w-full bg-black/20 text-slate-300 p-5 pt-10 resize-none focus:outline-none font-mono text-xs leading-relaxed custom-scrollbar placeholder-slate-700 overflow-y-auto"
-                        placeholder={`在此粘贴分集剧本内容...`}
-                        value={ep.content}
-                        onChange={(e) => onUpdateEpisode(ep.id, { content: e.target.value })}
-                        disabled={isAnalyzing || isProcessingFile}
+                        className={`flex-1 w-full bg-black/20 text-slate-300 p-5 pt-5 resize-none focus:outline-none font-mono text-xs leading-relaxed custom-scrollbar placeholder-slate-700 overflow-y-auto ${!isEditing ? 'cursor-default' : ''}`}
+                        placeholder={isEditing ? "在此粘贴分集剧本内容..." : "暂无内容"}
+                        value={displayContent}
+                        onChange={(e) => isEditing && setTempContent(e.target.value)}
+                        disabled={!isEditing}
                         spellCheck={false}
-                        onClick={(e) => e.stopPropagation()}
+                        onPaste={(e) => {
+                            // Optional: Handle paste logic if strict restriction is needed
+                        }}
                       />
 
                       {/* Footer Info & Action */}
                       <div className="px-5 py-2 flex items-center justify-between border-t border-white/5 bg-black/30 shrink-0">
                         <div className="flex items-center gap-2">
                             <span className={`text-[10px] font-mono ${isOverLimit ? 'text-red-500 font-bold' : 'text-slate-600'}`}>
-                                {charCount} / 2500 字
+                                {charCount} / 1500 字
                             </span>
                             {isOverLimit && <AlertCircle size={10} className="text-red-500" />}
                         </div>
                         
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (!locked && !isAnalyzing && ep.content.trim().length > 0) {
-                                     onAnalyzeEpisode(ep.id);
-                                }
-                            }}
-                            disabled={locked || isAnalyzing || ep.content.trim().length === 0}
-                            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
-                                locked || isAnalyzing || ep.content.trim().length === 0
-                                ? 'bg-white/5 text-slate-600 cursor-not-allowed'
-                                : 'bg-gradient-to-r from-[#d946ef] to-[#c026d3] text-white shadow-lg hover:shadow-purple-500/20 hover:scale-105 active:scale-95'
-                            }`}
-                        >
-                            <Sparkles size={10} />
-                            立即分析
-                        </button>
-                      </div>
-
-                      {/* Drag Overlay */}
-                      {isDragging && isActive && (
-                        <div className="absolute inset-2 z-20 border-2 border-dashed border-[#ccff00] bg-black/80 flex flex-col items-center justify-center backdrop-blur-sm pointer-events-none">
-                            <CloudUpload size={32} className="text-[#ccff00] mb-2" />
-                            <p className="text-xs font-bold text-white font-mono">松开以导入</p>
+                        <div className="flex items-center gap-2">
+                            {isEditing ? (
+                                <>
+                                    <button 
+                                        onClick={cancelEditing}
+                                        className="px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                                    >
+                                        取消
+                                    </button>
+                                    <button 
+                                        onClick={() => saveContent(ep)}
+                                        className="flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all bg-green-500/10 text-green-400 hover:bg-green-500/20"
+                                    >
+                                        <Save size={10} />
+                                        保存
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!locked && !isAnalyzing && ep.content.trim().length > 0) {
+                                            onAnalyzeEpisode(ep.id);
+                                        }
+                                    }}
+                                    disabled={locked || isAnalyzing || ep.content.trim().length === 0}
+                                    className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all ${
+                                        locked || isAnalyzing || ep.content.trim().length === 0
+                                        ? 'bg-white/5 text-slate-600 cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-[#d946ef] to-[#c026d3] text-white shadow-lg hover:shadow-purple-500/20 hover:scale-105 active:scale-95'
+                                    }`}
+                                >
+                                    <Sparkles size={10} />
+                                    立即分析
+                                </button>
+                            )}
                         </div>
-                      )}
+                      </div>
                    </div>
                 )}
              </div>

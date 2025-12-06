@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnalysisResult, CharacterProfile, AssetProfile } from '../types';
-import { Copy, ImagePlus, Pencil, Check, X, Download, Plus, Trash2, Search } from 'lucide-react';
+import { Copy, ImagePlus, Pencil, Check, X, Download, Plus, Trash2, Search, MoreVertical } from 'lucide-react';
 
 interface AssetPanelProps {
   data: AnalysisResult;
@@ -11,448 +11,205 @@ interface AssetPanelProps {
   onAddAsset?: () => void;
   onDeleteCharacter?: (index: number) => void;
   onDeleteAsset?: (index: number) => void;
+  onAddHistory?: (summary: string) => void;
 }
 
 export const AssetPanel: React.FC<AssetPanelProps> = ({ 
-    data, onUpdateImage, onUpdateText, onRemoveImage, onAddCharacter, onAddAsset, onDeleteCharacter, onDeleteAsset 
+    data, onUpdateImage, onUpdateText, onRemoveImage, onAddCharacter, onAddAsset, onDeleteCharacter, onDeleteAsset, onAddHistory 
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [draggingIndex, setDraggingIndex] = useState<{type: 'character' | 'asset', index: number} | null>(null);
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   
-  // Refs for auto-scrolling
+  // Refs
   const charactersEndRef = useRef<HTMLDivElement>(null);
   const assetsEndRef = useRef<HTMLDivElement>(null);
-  const prevCharLength = useRef(data?.characters?.length || 0);
-  const prevAssetLength = useRef(data?.assets?.length || 0);
 
-  useEffect(() => {
-    if (!data) return;
-    // Auto scroll when a new character is added
-    if (data.characters.length > prevCharLength.current) {
-        setEditingId(`char-${data.characters.length - 1}`);
-        setTimeout(() => {
-            charactersEndRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 100);
-    }
-    prevCharLength.current = data.characters.length;
-  }, [data?.characters?.length]);
-
-  useEffect(() => {
-    if (!data) return;
-    // Auto scroll when a new asset is added
-    if (data.assets.length > prevAssetLength.current) {
-        setEditingId(`asset-${data.assets.length - 1}`);
-        setTimeout(() => {
-            assetsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 100);
-    }
-    prevAssetLength.current = data.assets.length;
-  }, [data?.assets?.length]);
-
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
+  const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text); };
+  
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'character' | 'asset', index: number) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      onUpdateImage(type, index, files);
-    }
+    if (e.target.files?.length) onUpdateImage(type, index, e.target.files);
   };
-
+  
   const handleDrop = (e: React.DragEvent, type: 'character' | 'asset', index: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDraggingIndex(null);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      onUpdateImage(type, index, e.dataTransfer.files);
-    }
+    e.preventDefault(); e.stopPropagation(); setDraggingIndex(null);
+    if (e.dataTransfer.files?.length) onUpdateImage(type, index, e.dataTransfer.files);
   };
-
+  
   const handleDragOver = (e: React.DragEvent, type: 'character' | 'asset', index: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (draggingIndex?.type !== type || draggingIndex?.index !== index) {
-      setDraggingIndex({ type, index });
-    }
+    e.preventDefault(); e.stopPropagation();
+    if (draggingIndex?.type !== type || draggingIndex?.index !== index) setDraggingIndex({ type, index });
   };
-
+  
   const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.currentTarget.contains(e.relatedTarget as Node)) {
-      return;
-    }
-    setDraggingIndex(null);
+    e.preventDefault(); e.stopPropagation(); setDraggingIndex(null);
   };
-
+  
   const downloadImage = (url: string) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'asset-image.png';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const link = document.createElement('a'); link.href = url; link.download = 'asset.png';
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
-  if (!data) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-slate-500 font-mono text-xs h-full">
-        <p>未检测到资产库，请先分析剧本生成资产</p>
-      </div>
-    );
-  }
+  if (!data) return <div className="flex-1 flex items-center justify-center text-slate-500 font-mono text-xs h-full">未检测到资产库</div>;
 
-  // 搜索过滤逻辑
-  const filteredCharacters = useMemo(() => {
-    if (!data?.characters) return [];
-    if (!searchQuery.trim()) return data.characters;
-    const query = searchQuery.toLowerCase().trim();
-    return data.characters.filter(char => 
-      char.name.toLowerCase().includes(query) ||
-      char.visualSummary.toLowerCase().includes(query) ||
-      char.traits.toLowerCase().includes(query)
-    );
-  }, [data?.characters, searchQuery]);
+  // Filtering logic
+  const filteredCharacters = data.characters; 
+  const locationAssets = data.assets.filter(a => a.type === 'Location');
+  const propAssets = data.assets.filter(a => a.type !== 'Location');
 
-  const filteredAssets = useMemo(() => {
-    if (!data?.assets) return [];
-    if (!searchQuery.trim()) return data.assets;
-    const query = searchQuery.toLowerCase().trim();
-    return data.assets.filter(asset => 
-      asset.name.toLowerCase().includes(query) ||
-      asset.description.toLowerCase().includes(query) ||
-      asset.type.toLowerCase().includes(query)
-    );
-  }, [data?.assets, searchQuery]);
+  // Render Card Helper
+  const renderCard = (item: any, type: 'character' | 'asset', index: number, originalIndex: number) => {
+      const isEditing = editingId === `${type}-${originalIndex}`;
+      const isMenuOpen = activeMenuId === `${type}-${originalIndex}`;
+      const isDragActive = draggingIndex?.type === type && draggingIndex.index === originalIndex;
+
+      return (
+        <div 
+            key={`${type}-${originalIndex}`}
+            className={`bg-white/[0.02] border p-3 shadow-lg transition-all group relative overflow-visible backdrop-blur-md flex flex-col gap-3 rounded-2xl ${isDragActive ? 'border-[#d946ef] bg-[#d946ef]/10' : 'border-white/10 hover:border-[#d946ef]/50'}`}
+            onDragOver={(e) => handleDragOver(e, type, originalIndex)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, type, originalIndex)}
+        >
+             {/* Header & Menu */}
+             <div className="flex justify-between items-start relative z-20">
+                 {isEditing ? (
+                     <input 
+                        className="text-sm font-bold font-display text-white bg-black/40 border border-white/20 rounded px-1 w-full outline-none focus:border-[#d946ef]"
+                        value={item.name}
+                        onChange={(e) => onUpdateText(type, originalIndex, 'name', e.target.value)}
+                     />
+                 ) : (
+                     <h4 className="text-sm font-bold font-display text-white truncate pr-6">{item.name}</h4>
+                 )}
+
+                 {/* Kebab Menu or Confirm Button */}
+                 <div className="absolute right-0 top-0">
+                     {isEditing ? (
+                         <button onClick={() => setEditingId(null)} className="p-1 bg-[#ccff00] text-black rounded hover:scale-110 transition-transform">
+                             <Check size={12} />
+                         </button>
+                     ) : (
+                         <div className="relative">
+                             <button 
+                                onClick={() => setActiveMenuId(isMenuOpen ? null : `${type}-${originalIndex}`)}
+                                className="p-1 text-slate-400 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
+                             >
+                                 <MoreVertical size={14} />
+                             </button>
+                             {isMenuOpen && (
+                                 <div className="absolute right-0 top-6 bg-[#0f0518] border border-white/10 rounded-lg shadow-xl py-1 w-24 z-50 flex flex-col">
+                                     <button onClick={() => { setEditingId(`${type}-${originalIndex}`); setActiveMenuId(null); }} className="px-3 py-2 text-[10px] text-left hover:bg-white/5 text-slate-300 flex items-center gap-2">
+                                         <Pencil size={10} /> 编辑
+                                     </button>
+                                     <button onClick={() => { copyToClipboard(item.visualSummary || item.description); setActiveMenuId(null); }} className="px-3 py-2 text-[10px] text-left hover:bg-white/5 text-slate-300 flex items-center gap-2">
+                                         <Copy size={10} /> 复制
+                                     </button>
+                                     <button onClick={() => { 
+                                         if(type === 'character') onDeleteCharacter?.(originalIndex);
+                                         else onDeleteAsset?.(originalIndex);
+                                         setActiveMenuId(null); 
+                                     }} className="px-3 py-2 text-[10px] text-left hover:bg-red-500/20 text-red-400 flex items-center gap-2">
+                                         <Trash2 size={10} /> 删除
+                                     </button>
+                                 </div>
+                             )}
+                         </div>
+                     )}
+                 </div>
+             </div>
+
+             {/* Image Grid */}
+             <div className="w-full bg-black/20 rounded-xl p-2 border border-white/5 relative z-10">
+                  <div className="grid grid-cols-4 gap-1 w-full">
+                      {item.imageUrls?.map((url: string, imgIdx: number) => (
+                          <div key={imgIdx} className="relative w-full aspect-square group/img transition-transform hover:scale-[1.02]">
+                              <img 
+                                src={url} 
+                                className="w-full h-full object-cover rounded-lg shadow-sm border border-white/10 cursor-pointer hover:border-[#d946ef]"
+                                onClick={() => setLightboxImage(url)}
+                              />
+                              {isEditing && (
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); onRemoveImage(type, originalIndex, imgIdx); }}
+                                    className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full hover:bg-red-600 cursor-pointer z-20"
+                                  >
+                                    <X size={8} />
+                                  </button>
+                              )}
+                          </div>
+                      ))}
+                      {(!item.imageUrls || item.imageUrls.length < 4) && (
+                        <label className="w-full aspect-square border border-dashed border-white/10 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-[#d946ef] hover:bg-white/5 transition-all">
+                            <Plus size={12} className="text-slate-600" />
+                            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileChange(e, type, originalIndex)} />
+                        </label>
+                      )}
+                  </div>
+             </div>
+
+             {/* Text Content */}
+             <div className="space-y-2">
+                {isEditing ? (
+                    <textarea 
+                        className="w-full bg-black/40 border border-white/20 rounded p-2 text-[10px] text-slate-300 resize-none h-16 outline-none focus:border-[#d946ef]"
+                        value={type === 'character' ? item.visualSummary : item.description}
+                        onChange={(e) => onUpdateText(type, originalIndex, type === 'character' ? 'visualSummary' : 'description', e.target.value)}
+                    />
+                ) : (
+                    <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-3">
+                        {type === 'character' ? item.visualSummary : item.description}
+                    </p>
+                )}
+             </div>
+        </div>
+      );
+  };
 
   return (
     <>
-    <div className="h-full overflow-y-auto pr-4 pb-20 custom-scrollbar p-2">
-      
-      {/* Search Box */}
-      <div className="sticky top-0 z-10 mb-6 pb-4 pt-2 -mx-2 px-2">
-        <div className="relative group/search">
-          {/* 毛玻璃背景容器 */}
-          <div className="absolute inset-0 bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-transparent backdrop-blur-2xl rounded-2xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] group-hover/search:border-white/20 transition-all"></div>
-          
-          {/* 内容层 */}
-          <div className="relative">
-            {/* 搜索图标 */}
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none z-10">
-              <div className="p-1.5 rounded-lg bg-white/5 backdrop-blur-sm">
-                <Search size={14} className="text-slate-400 group-hover/search:text-[#d946ef] transition-colors" />
-              </div>
+    <div className="h-full flex overflow-hidden p-2 gap-2 bg-[#0f0518]">
+        {/* Column 1: Characters */}
+        <div className="flex-1 flex flex-col min-w-0 bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/20">
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">角色 (Characters)</h3>
+                <button onClick={onAddCharacter} className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Plus size={14}/></button>
             </div>
-            
-            {/* 输入框 */}
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索角色、场景、道具..."
-              className="w-full pl-12 pr-12 py-3.5 bg-white/[0.06] backdrop-blur-xl border-0 rounded-2xl text-sm text-white placeholder-slate-500/70 focus:outline-none focus:ring-2 focus:ring-[#d946ef]/50 focus:bg-white/[0.1] transition-all duration-300 font-mono shadow-inner"
-            />
-            
-            {/* 清除按钮 */}
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 backdrop-blur-sm transition-all group/clear z-10"
-              >
-                <X size={12} className="text-slate-400 group-hover/clear:text-white transition-colors" />
-              </button>
-            )}
-          </div>
-          
-          {/* 搜索结果统计 */}
-          {searchQuery && (
-            <div className="mt-3 ml-1 flex items-center gap-3">
-              <div className="px-3 py-1.5 rounded-xl bg-[#d946ef]/10 backdrop-blur-sm border border-[#d946ef]/20">
-                <span className="text-xs text-[#d946ef] font-bold font-mono">
-                  {filteredCharacters.length} 角色
-                </span>
-              </div>
-              <div className="px-3 py-1.5 rounded-xl bg-[#ccff00]/10 backdrop-blur-sm border border-[#ccff00]/20">
-                <span className="text-xs text-[#ccff00] font-bold font-mono">
-                  {filteredAssets.length} 资产
-                </span>
-              </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar grid grid-cols-1 lg:grid-cols-2 gap-2 content-start">
+                {filteredCharacters.map((char, idx) => renderCard(char, 'character', idx, data.characters.indexOf(char)))}
             </div>
-          )}
         </div>
-      </div>
-      
-      {/* Characters */}
-      <div className="mb-12">
-        <h3 className="text-4xl font-black font-display text-white mb-8 tracking-tighter opacity-80">角色档案</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-           {/* ADD NEW CHARACTER CARD */}
-           <button 
-              onClick={onAddCharacter}
-              className="bg-white/[0.02] border border-dashed border-white/20 hover:border-[#d946ef] hover:bg-[#d946ef]/10 rounded-3xl p-6 flex flex-col items-center justify-center gap-4 transition-all group min-h-[200px]"
-           >
-               <div className="p-4 rounded-full bg-white/5 group-hover:bg-[#d946ef] text-slate-400 group-hover:text-white transition-all">
-                   <Plus size={32} />
-               </div>
-               <span className="text-sm font-bold text-slate-500 group-hover:text-white uppercase tracking-widest">点击添加新角色</span>
-           </button>
 
-          {filteredCharacters.map((char, originalIdx) => {
-             const idx = data.characters.indexOf(char); // 获取原始索引
-             const isEditing = editingId === `char-${idx}`;
-             const isDragActive = draggingIndex?.type === 'character' && draggingIndex.index === idx;
-
-             return (
-            <div 
-                key={idx} 
-                ref={idx === data.characters.length - 1 ? charactersEndRef : null}
-                className={`bg-white/[0.02] border p-6 shadow-xl transition-all group relative overflow-visible backdrop-blur-md flex flex-col gap-6 rounded-3xl ${isDragActive ? 'border-[#d946ef] bg-[#d946ef]/10' : 'border-white/10 hover:border-[#d946ef]/50'}`}
-                onDragOver={(e) => handleDragOver(e, 'character', idx)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, 'character', idx)}
-            >
-              
-              {/* Image Slot - Grid Layout */}
-              <div className="w-full bg-black/20 rounded-2xl p-4 border border-white/5 relative z-10">
-                  <div className="grid grid-cols-5 gap-2 w-full">
-                      {/* Existing Images */}
-                      {char.imageUrls?.map((url, imgIdx) => (
-                          <div key={url} className="relative w-full aspect-square group/img transition-transform hover:scale-[1.02]">
-                              <img 
-                                src={url} 
-                                alt={`Character ${imgIdx}`} 
-                                className="w-full h-full object-cover rounded-xl shadow-lg border border-white/10 cursor-pointer hover:border-[#d946ef] transition-colors"
-                                onClick={() => setLightboxImage(url)}
-                              />
-                              <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onRemoveImage('character', idx, imgIdx);
-                                }}
-                                className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all opacity-0 group-hover/img:opacity-100 shadow-md transform hover:scale-110 z-20 cursor-pointer"
-                              >
-                                <X size={10} strokeWidth={3} />
-                              </button>
-                          </div>
-                      ))}
-                      
-                      {/* Upload Button */}
-                      {(!char.imageUrls || char.imageUrls.length < 5) && (
-                        <label className="w-full aspect-square border-2 border-dashed border-white/10 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-[#d946ef] hover:bg-white/5 transition-all group/upload relative">
-                            <ImagePlus size={20} className="text-slate-600 group-hover/upload:text-[#d946ef] transition-colors" />
-                            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileChange(e, 'character', idx)} />
-                        </label>
-                      )}
-                  </div>
-              </div>
-
-              {/* Text Content - Bottom */}
-              <div className="flex-1 min-w-0 flex flex-col relative z-0 pl-2">
-                  <div className="absolute top-0 right-0 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                     <button onClick={() => setEditingId(isEditing ? null : `char-${idx}`)} className="p-2 bg-white/10 text-white rounded hover:bg-white/20 transition-colors">
-                        {isEditing ? <Check size={14}/> : <Pencil size={14}/>}
-                     </button>
-                     {!isEditing && (
-                        <button onClick={() => copyToClipboard(char.visualSummary)} className="p-2 bg-[#d946ef] text-white rounded hover:scale-110 transition-transform"><Copy size={14}/></button>
-                     )}
-                     {onDeleteCharacter && (
-                       <button
-                         onClick={() => onDeleteCharacter(idx)}
-                         className="p-2 bg-red-500/20 text-red-400 hover:text-white hover:bg-red-500 rounded transition-all"
-                       >
-                         <Trash2 size={14} />
-                       </button>
-                     )}
-                  </div>
-
-                  {isEditing ? (
-                      <input 
-                        className="text-2xl font-bold font-display text-white mb-4 bg-black/40 border border-white/20 rounded px-2 w-full outline-none focus:border-[#d946ef]"
-                        value={char.name}
-                        onChange={(e) => onUpdateText('character', idx, 'name', e.target.value)}
-                        placeholder="角色名称"
-                      />
-                  ) : (
-                      <h4 className="text-3xl font-bold font-display text-white mb-4 tracking-tight">{char.name}</h4>
-                  )}
-
-                  <div className="space-y-4 flex-1">
-                    {isEditing ? (
-                         <textarea 
-                            className="text-sm text-slate-300 font-light leading-relaxed bg-black/40 border border-white/20 rounded p-2 w-full h-24 outline-none focus:border-[#d946ef] resize-none"
-                            value={char.visualSummary}
-                            onChange={(e) => onUpdateText('character', idx, 'visualSummary', e.target.value)}
-                            placeholder="外貌描述 (Visual Summary)"
-                         />
-                    ) : (
-                        <p className="text-sm text-slate-300 font-light leading-relaxed opacity-80">{char.visualSummary}</p>
-                    )}
-                    
-                    {isEditing ? (
-                        <input 
-                            className="text-[10px] bg-black/40 border border-white/20 rounded px-2 py-1 w-full text-[#d946ef] font-bold outline-none focus:border-[#d946ef]"
-                            value={char.traits}
-                            onChange={(e) => onUpdateText('character', idx, 'traits', e.target.value)}
-                            placeholder="特性 (逗号分隔)"
-                        />
-                    ) : (
-                        <div className="flex flex-wrap gap-2">
-                            {char.traits.split(/[,，、]/).map((trait, tIdx) => (
-                                trait.trim() && <span key={tIdx} className="text-[10px] font-bold text-[#d946ef] bg-[#d946ef]/5 border border-[#d946ef]/20 px-2 py-1 uppercase tracking-wider rounded">
-                                {trait.trim()}
-                                </span>
-                            ))}
-                        </div>
-                    )}
-                  </div>
-              </div>
+        {/* Column 2: Scenes */}
+        <div className="flex-1 flex flex-col min-w-0 bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/20">
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">场景 (Scenes)</h3>
+                <button onClick={onAddAsset} className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Plus size={14}/></button>
             </div>
-          )})}
-        </div>
-      </div>
-
-      {/* Assets */}
-      <div>
-        <h3 className="text-4xl font-black font-display text-white mb-8 tracking-tighter opacity-80">场景资产</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-           {/* ADD NEW ASSET CARD */}
-           <button 
-              onClick={onAddAsset}
-              className="bg-white/[0.02] border border-dashed border-white/20 hover:border-[#ccff00] hover:bg-[#ccff00]/10 rounded-3xl p-6 flex flex-col items-center justify-center gap-4 transition-all group min-h-[200px]"
-           >
-               <div className="p-4 rounded-full bg-white/5 group-hover:bg-[#ccff00] text-slate-400 group-hover:text-black transition-all">
-                   <Plus size={32} />
-               </div>
-               <span className="text-sm font-bold text-slate-500 group-hover:text-white uppercase tracking-widest">点击添加新资产</span>
-           </button>
-
-          {filteredAssets.map((asset, originalIdx) => {
-            const idx = data.assets.indexOf(asset); // 获取原始索引
-            const isEditing = editingId === `asset-${idx}`;
-            const isDragActive = draggingIndex?.type === 'asset' && draggingIndex.index === idx;
-
-            return (
-            <div 
-                key={idx} 
-                ref={idx === data.assets.length - 1 ? assetsEndRef : null}
-                className={`bg-white/[0.02] border p-6 shadow-xl transition-all group relative overflow-visible backdrop-blur-md flex flex-col gap-6 rounded-3xl ${isDragActive ? 'border-[#ccff00] bg-[#ccff00]/10' : 'border-white/10 hover:border-[#ccff00]/50'}`}
-                onDragOver={(e) => handleDragOver(e, 'asset', idx)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, 'asset', idx)}
-            >
-               
-              {/* Image Slot - Grid Layout */}
-              <div className="w-full bg-black/20 rounded-2xl p-4 border border-white/5 relative z-10">
-                  <div className="grid grid-cols-5 gap-2 w-full">
-                      {asset.imageUrls?.map((url, imgIdx) => (
-                          <div key={url} className="relative w-full aspect-square group/img transition-transform hover:scale-[1.02]">
-                              <img 
-                                src={url} 
-                                alt={`Asset ${imgIdx}`} 
-                                className="w-full h-full object-cover rounded-xl shadow-lg border border-white/10 cursor-pointer hover:border-[#ccff00] transition-colors"
-                                onClick={() => setLightboxImage(url)}
-                              />
-                              <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onRemoveImage('asset', idx, imgIdx);
-                                }}
-                                className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all opacity-0 group-hover/img:opacity-100 shadow-md transform hover:scale-110 z-20 cursor-pointer"
-                              >
-                                <X size={10} strokeWidth={3} />
-                              </button>
-                          </div>
-                      ))}
-                      
-                      {/* Upload Button */}
-                      {(!asset.imageUrls || asset.imageUrls.length < 5) && (
-                        <label className="w-full aspect-square border-2 border-dashed border-white/10 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-[#ccff00] hover:bg-white/5 transition-all group/upload relative">
-                            <ImagePlus size={20} className="text-slate-600 group-hover/upload:text-[#ccff00] transition-colors" />
-                            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileChange(e, 'asset', idx)} />
-                        </label>
-                      )}
-                  </div>
-              </div>
-
-              {/* Text Content - Bottom */}
-              <div className="flex-1 min-w-0 flex flex-col relative z-0 pl-2">
-                  <div className="absolute top-0 right-0 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
-                     <button onClick={() => setEditingId(isEditing ? null : `asset-${idx}`)} className="p-2 bg-white/10 text-white rounded hover:bg-white/20 transition-colors">
-                        {isEditing ? <Check size={14}/> : <Pencil size={14}/>}
-                     </button>
-                     {!isEditing && (
-                        <button onClick={() => copyToClipboard(asset.description)} className="p-2 bg-[#ccff00] text-black rounded hover:scale-110 transition-transform"><Copy size={14}/></button>
-                     )}
-                     {onDeleteAsset && (
-                       <button
-                         onClick={() => onDeleteAsset(idx)}
-                         className="p-2 bg-red-500/20 text-red-400 hover:text-white hover:bg-red-500 rounded transition-all"
-                       >
-                         <Trash2 size={14} />
-                       </button>
-                     )}
-                  </div>
-                  
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 border uppercase rounded ${asset.type === 'Location' ? 'text-indigo-300 border-indigo-500 bg-indigo-500/10' : 'text-orange-300 border-orange-500 bg-orange-500/10'}`}>
-                        {asset.type === 'Location' ? '场景' : '道具'}
-                    </span>
-                    {isEditing ? (
-                        <input 
-                            className="text-xl font-bold font-display text-white bg-black/40 border border-white/20 rounded px-2 w-full outline-none focus:border-[#ccff00]"
-                            value={asset.name}
-                            onChange={(e) => onUpdateText('asset', idx, 'name', e.target.value)}
-                            placeholder="资产名称"
-                        />
-                    ) : (
-                        <h4 className="text-2xl font-bold font-display text-white truncate">{asset.name}</h4>
-                    )}
-                  </div>
-
-                  {isEditing ? (
-                         <textarea 
-                            className="text-sm text-slate-300 font-light leading-relaxed bg-black/40 border border-white/20 rounded p-2 w-full h-24 outline-none focus:border-[#ccff00] resize-none"
-                            value={asset.description}
-                            onChange={(e) => onUpdateText('asset', idx, 'description', e.target.value)}
-                            placeholder="画面描述"
-                         />
-                    ) : (
-                        <p className="text-sm text-slate-300 font-light leading-relaxed border-l-2 border-white/10 pl-4 opacity-80">
-                            {asset.description}
-                        </p>
-                    )}
-              </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar grid grid-cols-1 lg:grid-cols-2 gap-2 content-start">
+                {locationAssets.map((asset, idx) => renderCard(asset, 'asset', idx, data.assets.indexOf(asset)))}
             </div>
-          )})}
         </div>
-      </div>
 
-      {/* No Results Message */}
-      {searchQuery && filteredCharacters.length === 0 && filteredAssets.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="p-4 rounded-full bg-white/5 mb-4">
-            <Search size={32} className="text-slate-600" />
-          </div>
-          <p className="text-sm text-slate-500 font-mono">未找到匹配的结果</p>
-          <p className="text-xs text-slate-600 mt-2">尝试使用其他关键词搜索</p>
+        {/* Column 3: Props */}
+        <div className="flex-1 flex flex-col min-w-0 bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/20">
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">道具 (Props)</h3>
+                <button onClick={onAddAsset} className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Plus size={14}/></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar grid grid-cols-1 lg:grid-cols-2 gap-2 content-start">
+                {propAssets.map((asset, idx) => renderCard(asset, 'asset', idx, data.assets.indexOf(asset)))}
+            </div>
         </div>
-      )}
     </div>
 
-    {/* Lightbox Modal */}
+    {/* Lightbox (same as before) */}
     {lightboxImage && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-md animate-fade-in" onClick={() => setLightboxImage(null)}>
             <div className="relative max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
                 <img src={lightboxImage} alt="Preview" className="max-w-full max-h-[90vh] rounded-lg shadow-2xl border border-white/10" />
-                <div className="absolute top-4 right-4 flex gap-2">
-                    <button onClick={() => copyToClipboard(lightboxImage)} className="p-2 bg-black/50 text-white rounded-full hover:bg-white hover:text-black transition-colors border border-white/20"><Copy size={20}/></button>
-                    <button onClick={() => downloadImage(lightboxImage)} className="p-2 bg-black/50 text-white rounded-full hover:bg-white hover:text-black transition-colors border border-white/20"><Download size={20}/></button>
-                    <button onClick={() => setLightboxImage(null)} className="p-2 bg-red-500/80 text-white rounded-full hover:bg-red-600 transition-colors"><X size={20}/></button>
-                </div>
+                <button onClick={() => setLightboxImage(null)} className="absolute top-4 right-4 p-2 bg-red-500/80 text-white rounded-full hover:bg-red-600 transition-colors"><X size={20}/></button>
             </div>
         </div>
     )}

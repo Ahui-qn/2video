@@ -40,8 +40,15 @@ export interface ScriptEpisode {
   id: string;
   title: string;
   content: string;
-  status: 'draft' | 'analyzing' | 'analyzed';
+  status: 'draft' | 'analyzing' | 'analyzed' | 'completed';
   isExpanded: boolean;
+}
+
+export interface HistoryRecord {
+  id: string;
+  timestamp: number;
+  summary: string;
+  user: string;
 }
 
 export interface CharacterProfile {
