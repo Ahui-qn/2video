@@ -15,7 +15,7 @@
  * - 减少重复分析，提高效率
  * - 支持多集剧本的渐进式处理
  */
-import { AnalysisResult, UserKeys, LLMProvider, CharacterProfile, AssetProfile, Episode, Scene, Shot } from "../types";
+import { AnalysisResult, UserKeys, LLMProvider } from "../types";
 import { GoogleGenAI } from "@google/genai";
 
 /**
@@ -234,7 +234,7 @@ const performLLMCall = async (
 ) => {
   if (provider === 'google') {
     // Use @google/genai SDK
-    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     
     const response = await ai.models.generateContent({
       model: modelId,
