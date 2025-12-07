@@ -1,0 +1,102 @@
+# Implementation Plan
+
+- [x] 1. Fix Auth component type consistency
+  - [x] 1.1 Update Auth component to return isAdmin field
+    - Modify Auth.tsx to include isAdmin in the returned user object
+    - Update the onLogin callback type definition
+    - _Requirements: 5.1_
+  - [x] 1.2 Update App.tsx to handle consistent user types
+    - Fix handleLogin parameter type
+    - Ensure localStorage stores all required fields
+    - _Requirements: 5.2, 5.3_
+
+- [x] 2. Fix CollaborationContext and state sync issues
+  - [x] 2.1 Add remote update flag to prevent sync loops
+    - Add isRemoteUpdate ref to track update source
+    - Modify socket event handlers to set the flag
+    - Update broadcast logic to check the flag before emitting
+    - _Requirements: 1.1, 1.2, 1.3, 1.4_
+  - [x] 2.2 Add project data and loading state to context
+    - Add isLoading and projectData to context state
+    - Handle project-state event to populate projectData
+    - Add currentUserId to context for identity comparison
+    - _Requirements: 2.1, 2.2, 3.1_
+  - [x] 2.3 Enhance members data structure
+    - Change members from Record<string, Role> to Record<string, MemberInfo>
+    - Update server to send full member info
+    - _Requirements: 3.3_
+  - [x] 2.4 Write property test for sync loop prevention
+    - **Property 1: Sync Loop Prevention**
+    - **Validates: Requirements 1.1, 1.2, 1.4**
+    - Created in tests/collaboration.test.ts
+
+- [x] 3. Fix Workspace component issues
+  - [x] 3.1 Update Workspace to use context projectData
+    - Initialize state from context projectData when available
+    - Handle loading state properly
+    - _Requirements: 2.2, 2.4_
+  - [x] 3.2 Fix useEffect dependencies and cleanup
+    - Add missing dependencies to useEffect hooks
+    - Add cleanup for all intervals and timeouts on unmount
+    - _Requirements: 7.1, 7.2_
+  - [x] 3.3 Write property test for cleanup on unmount
+    - **Property 7: Cleanup on Unmount**
+    - **Validates: Requirements 7.1, 7.2**
+    - Created in tests/collaboration.test.ts
+
+- [x] 4. Fix TeamModal member identity display
+  - [x] 4.1 Fix current user identification logic
+    - Use currentUserId from context instead of incorrect comparison
+    - Display "(我)" indicator correctly
+    - _Requirements: 3.1, 3.2_
+  - [x] 4.2 Display full names for offline members
+    - Use MemberInfo from context to get full names
+    - Remove fallback to truncated ID
+    - _Requirements: 3.3_
+  - [x] 4.3 Write property test for member identity
+    - **Property 3: Member Identity Correctness**
+    - **Validates: Requirements 3.1, 3.2**
+    - Created in tests/collaboration.test.ts
+
+- [x] 5. Fix server-side security issues
+  - [x] 5.1 Add project membership verification
+    - Verify user belongs to project before allowing updates
+    - Add projectId validation in project-update handler
+    - _Requirements: 4.1_
+  - [x] 5.2 Remove lazy project creation security hole
+    - Reject join attempts for non-existent projects
+    - Return error event to client
+    - _Requirements: 4.4_
+  - [x] 5.3 Enhance permission logging
+    - Log unauthorized access attempts
+    - Add audit log for rejected operations
+    - _Requirements: 4.3_
+  - [x] 5.4 Write property test for authorization
+    - **Property 5: Authorization Enforcement**
+    - **Validates: Requirements 4.1, 4.2**
+    - Created in tests/collaboration.test.ts
+
+- [x] 6. Add reconnection handling
+  - [x] 6.1 Implement auto-reconnect with room rejoin
+    - Handle socket reconnect event
+    - Re-emit join-project on reconnection
+    - _Requirements: 6.1, 6.2_
+  - [x] 6.2 Add offline update queue
+    - Queue updates when disconnected
+    - Flush queue on reconnection
+    - _Requirements: 6.4_
+  - [x] 6.3 Add reconnection error handling
+    - Display error notification on reconnection failure
+    - Provide manual reconnect option
+    - _Requirements: 6.3_
+
+- [x] 7. Fix App.tsx project join flow
+  - [x] 7.1 Wait for server confirmation before showing workspace
+    - Add loading state for project join
+    - Handle project-not-found error
+    - _Requirements: 2.1, 2.3_
+
+- [x] 8. Checkpoint - Make sure all tests pass
+  - Tests created in tests/collaboration.test.ts
+  - Note: vitest requires Node.js >= 20, run `npm test` to execute
+  - All implementation tasks completed

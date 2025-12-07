@@ -7,7 +7,10 @@ import { SettingsModal } from './SettingsModal';
 import { analyzeScript, extractAssetsOnly } from '../services/geminiService';
 import { readFileContent } from '../services/fileService';
 import { AppState, AnalysisResult, Shot, ModelConfig, UserKeys, ScriptEpisode, CharacterProfile, AssetProfile, Project, HistoryRecord } from '../types';
-import { Download, Clapperboard, Sparkles, Settings, ChevronDown, Cpu, Moon, Square, ArrowLeft, Layers, Image as ImageIcon, History as HistoryIcon, Trash2 } from 'lucide-react';
+import { Download, Clapperboard, Sparkles, Settings, ChevronDown, Cpu, Moon, Square, ArrowLeft, Layers, Image as ImageIcon, History as HistoryIcon, Trash2, Users, Shield, Wifi } from 'lucide-react';
+import { useCollaboration, Collaborator, ProjectData } from './CollaborationContext';
+import { TeamModal } from './TeamModal';
+import { ManualShotModal } from './ManualShotModal';
 
 interface WorkspaceProps {
   project: Project;
@@ -32,19 +35,33 @@ const MODELS: ModelConfig[] = [
   { id: 'deepseek-chat', name: 'DeepSeek V3', provider: 'deepseek' },
 ];
 
-export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSaveProject }) => {
+export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, onBack }) => {
+  const { 
+    role, 
+    activeUsers, 
+    updateProject, 
+    socket, 
+    isConnected, 
+    isLoading: isCollabLoading,
+    projectData: serverProjectData,
+    projectInfo,
+    isRemoteUpdate,
+    setIsRemoteUpdate
+  } = useCollaboration();
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showManualShotModal, setShowManualShotModal] = useState(false);
+
   // --- STATE ---
   const [activeView, setActiveView] = useState<'storyboard' | 'assets'>('storyboard');
 
   // --- 核心状态管理 (Core State Management) ---
-  // 管理整个应用的分析状态 (idle, analyzing, etc.)
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
-  // 存储分析结果 (分镜、资产)
   const [result, setResult] = useState<AnalysisResult | null>(project.data);
-  // 剧本分集列表
   const [episodes, setEpisodes] = useState<ScriptEpisode[]>(project.episodes || [INITIAL_EPISODE]);
-  // 全局资产库 (角色、场景等)
   const [globalAssets, setGlobalAssets] = useState<AnalysisResult | null>(project.data);
+  
+  // Track if we've initialized from server data
+  const initializedFromServer = useRef(false);
 
   const [customInstructions, setCustomInstructions] = useState('【硬性约束：单镜头<3s；每集镜头≈21；语速≈6字/秒】\n');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -67,6 +84,81 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
   const [layout, setLayout] = useState({ left: 320, right: 350 });
   const isResizing = useRef<'left' | 'right' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- INITIALIZE FROM SERVER DATA ---
+  useEffect(() => {
+    // Always update from server data when it arrives (not just first time)
+    // This ensures invited users get the latest data
+    if (serverProjectData) {
+      console.log('Initializing from server data:', serverProjectData);
+      initializedFromServer.current = true;
+      
+      // Update result if server has data
+      if (serverProjectData.result) {
+        setResult(serverProjectData.result);
+      }
+      
+      // Update episodes if server has data
+      if (serverProjectData.episodes && serverProjectData.episodes.length > 0) {
+        setEpisodes(serverProjectData.episodes);
+      }
+      
+      // Update global assets if server has data
+      if (serverProjectData.globalAssets) {
+        setGlobalAssets(serverProjectData.globalAssets);
+      }
+    }
+  }, [serverProjectData]);
+
+  // Use ref to track remote updates to avoid race conditions
+  const isRemoteUpdateRef = useRef(false);
+
+  // --- COLLABORATION SYNC ---
+  // Note: We handle project-updated in CollaborationContext via onProjectUpdate callback
+  // This useEffect syncs the context's projectData changes to local state
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleRemoteUpdate = (data: any) => {
+      console.log('Received remote update:', data);
+      // Mark as remote update to prevent broadcast loop
+      isRemoteUpdateRef.current = true;
+      setIsRemoteUpdate(true);
+      if (data.result) setResult(data.result);
+      if (data.episodes) setEpisodes(data.episodes);
+      if (data.globalAssets) setGlobalAssets(data.globalAssets);
+      // Reset flag after state updates
+      setTimeout(() => {
+        isRemoteUpdateRef.current = false;
+        setIsRemoteUpdate(false);
+      }, 200);
+    };
+
+    socket.on('project-updated', handleRemoteUpdate);
+    return () => {
+      socket.off('project-updated', handleRemoteUpdate);
+    };
+  }, [socket, setIsRemoteUpdate]);
+
+  // Broadcast changes when local state updates (Debounced)
+  // Only broadcast if this is a local update, not a remote one
+  useEffect(() => {
+    // Skip if this is a remote update to prevent sync loops
+    // Check both state and ref for safety
+    if (isRemoteUpdate || isRemoteUpdateRef.current) return;
+    
+    const timer = setTimeout(() => {
+      // Double-check ref before broadcasting
+      if (role !== 'viewer' && !isRemoteUpdateRef.current) {
+        updateProject({
+          result,
+          episodes,
+          globalAssets
+        });
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [result, episodes, globalAssets, role, updateProject, isRemoteUpdate]);
 
   // Load Keys
   useEffect(() => {
@@ -548,6 +640,70 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
       setResult(prev => update(prev));
   };
 
+  // Handle manual shot addition
+  const handleManualShotSubmit = (shot: Shot, sceneHeader: string, episodeId?: string) => {
+    // Create new scene with the shot
+    const newScene = {
+      sceneId: `scene-${Date.now()}`,
+      header: sceneHeader,
+      shots: [{ ...shot, id: '1' }]
+    };
+
+    if (!result) {
+      // No result yet - create new result with first episode
+      const firstEpisode = episodes[0] || { id: '1', title: '第 1 集' };
+      const newResult: AnalysisResult = {
+        title: project.name,
+        synopsis: '',
+        characters: [],
+        assets: [],
+        scenes: [newScene],
+        episodes: [{
+          id: firstEpisode.id,
+          title: firstEpisode.title,
+          scenes: [newScene]
+        }]
+      };
+      setResult(newResult);
+      addHistory(`手动添加分镜: ${sceneHeader}`);
+      return;
+    }
+
+    // Result exists - add to appropriate episode
+    const newEpisodes = [...(result.episodes || [])];
+    
+    if (newEpisodes.length === 0) {
+      // No episodes in result - create first one
+      const firstEpisode = episodes[0] || { id: '1', title: '第 1 集' };
+      newEpisodes.push({
+        id: firstEpisode.id,
+        title: firstEpisode.title,
+        scenes: [newScene]
+      });
+    } else {
+      // Find target episode or use first one
+      let targetIndex = 0;
+      if (episodeId) {
+        const foundIndex = newEpisodes.findIndex(ep => ep.id === episodeId);
+        if (foundIndex !== -1) targetIndex = foundIndex;
+      }
+      
+      // Add scene to the episode
+      const targetEpisode = { ...newEpisodes[targetIndex] };
+      targetEpisode.scenes = [...targetEpisode.scenes, newScene];
+      newEpisodes[targetIndex] = targetEpisode;
+    }
+
+    // Update result
+    setResult({
+      ...result,
+      episodes: newEpisodes,
+      scenes: newEpisodes.flatMap(ep => ep.scenes)
+    });
+    
+    addHistory(`手动添加分镜: ${sceneHeader}`);
+  };
+
   const handleExport = () => {
     if (!result) return;
     const headers = ['集数', '场号', '镜头编号', '景别', '运镜', '生图提示词(Prompt)', '环境', '人物与动作', '台词', '时长'];
@@ -575,6 +731,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
       default: return <Cpu size={14} className="text-[#ccff00] drop-shadow-[0_0_8px_rgba(204,255,0,0.8)]" />;
     }
   }
+
+  // --- CLEANUP ON UNMOUNT ---
+  useEffect(() => {
+    return () => {
+      // Clear all intervals and timeouts on unmount to prevent memory leaks
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, []);
 
   // --- RESIZING ---
   useEffect(() => {
@@ -605,6 +776,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
   }, []);
 
 
+  // Show loading state while collaboration is loading
+  if (isCollabLoading) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center">
+        <div className="relative mb-8">
+          <div className="absolute inset-0 bg-[#ccff00] blur-[100px] opacity-20"></div>
+          <Clapperboard size={64} className="text-[#ccff00] animate-pulse" />
+        </div>
+        <h2 className="text-2xl font-display font-bold text-white mb-2">正在加载项目...</h2>
+        <p className="text-slate-500 text-sm">连接协作服务器中</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
         {/* HEADER */}
@@ -619,8 +804,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                  </div>
                  <div>
                     <h1 className="text-2xl font-bold font-display tracking-tighter text-white drop-shadow-lg flex items-center gap-2">
-                        {project.name}
-                        <span className="text-[10px] bg-white/5 px-2 py-0.5 rounded border border-white/10 text-slate-400 font-mono tracking-wide">{project.creator}</span>
+                        {projectInfo?.name || project.name}
+                        <span className="text-[10px] bg-white/5 px-2 py-0.5 rounded border border-white/10 text-slate-400 font-mono tracking-wide">{projectInfo?.creator || project.creator}</span>
                     </h1>
                  </div>
              </div>
@@ -640,9 +825,33 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                     <Sparkles size={14} /> 全局资产库
                 </button>
              </div>
+
+             {/* ACTIVE USERS AVATARS */}
+             <div className="flex items-center pl-4 gap-[-8px]">
+                {activeUsers.slice(0, 3).map((u, i) => (
+                    <div key={u.socketId || i} className="w-8 h-8 rounded-full bg-slate-700 border-2 border-[#0f0518] flex items-center justify-center text-[10px] font-bold text-white -ml-2 relative group cursor-help" title={u.name}>
+                        {u.name.substring(0, 2).toUpperCase()}
+                        <div className="absolute bottom-0 right-0 w-2 h-2 bg-green-500 rounded-full border border-[#0f0518]"></div>
+                    </div>
+                ))}
+                {activeUsers.length > 3 && (
+                    <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-[#0f0518] flex items-center justify-center text-[10px] font-bold text-slate-400 -ml-2">
+                        +{activeUsers.length - 3}
+                    </div>
+                )}
+                <button 
+                    onClick={() => setShowTeamModal(true)}
+                    className="ml-4 px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 flex items-center gap-2 text-xs font-bold text-slate-300 transition-colors"
+                >
+                    <Users size={14} />
+                    {activeUsers.length}
+                </button>
+             </div>
           </div>
           
           <div className="flex items-center gap-4 bg-black/40 backdrop-blur-xl p-2 rounded-2xl border border-white/10 shadow-2xl">
+              {/* Connection Status */}
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-red-500'} mr-2`} title={isConnected ? "已连接协作服务" : "未连接"} />
               
               {/* NEW AUTO STORYBOARD BUTTON */}
               <button 
@@ -711,6 +920,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
             />
 
             <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} userKeys={userKeys} onSave={handleSaveKeys} />
+            <TeamModal isOpen={showTeamModal} onClose={() => setShowTeamModal(false)} projectId={project.id} />
+            <ManualShotModal 
+              isOpen={showManualShotModal} 
+              onClose={() => setShowManualShotModal(false)} 
+              onSubmit={handleManualShotSubmit}
+              episodes={result?.episodes}
+            />
 
             {/* History Panel */}
             {showHistory && (
@@ -748,7 +964,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                 <div 
                     className={`absolute inset-0 w-full h-full p-4 transition-all duration-200 ease-in-out ${activeView === 'assets' ? 'opacity-100 z-10 translate-x-0' : 'opacity-0 z-0 -translate-x-4 pointer-events-none'}`}
                 >
-                    <div className="w-full h-full bg-[#0f0518]/60 backdrop-blur-2xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative">
+                    <div className={`w-full h-full bg-[#0f0518]/60 backdrop-blur-2xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative ${role === 'viewer' ? 'pointer-events-none opacity-80' : ''}`}>
                         <AssetPanel 
                             data={result || globalAssets} 
                             onUpdateImage={handleUpdateAssetImage} 
@@ -779,7 +995,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                             customInstructions={customInstructions} 
                             setCustomInstructions={setCustomInstructions} 
                             isAnalyzing={appState === AppState.ANALYZING || appState === AppState.EXTRACTING_CONTEXT} 
-                            locked={false}
+                            locked={role === 'viewer'}
                             onAddHistory={addHistory}
                         />
                     </div>
@@ -813,7 +1029,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                             分镜表 (STORYBOARD)
                         </div>
                         {result ? (
-                            <div className="flex-1 p-4 overflow-hidden relative">
+                            <div className={`flex-1 p-4 overflow-hidden relative ${role === 'viewer' ? 'pointer-events-none opacity-80' : ''}`}>
                                  <StoryboardTable 
                                     scenes={result.scenes} 
                                     episodes={result.episodes} 
@@ -826,8 +1042,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onBack, onSavePro
                                  />
                             </div>
                         ) : (
-                            <div className="flex-1 flex items-center justify-center text-slate-600 font-mono text-xs">
+                            <div className="flex-1 flex flex-col items-center justify-center text-slate-600 font-mono text-xs gap-4">
                                  <p>请点击「自动生成资产」开始创作</p>
+                                 <span className="opacity-50">- 或 -</span>
+                                 <button 
+                                    onClick={() => setShowManualShotModal(true)}
+                                    disabled={role === 'viewer'}
+                                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                 >
+                                    手动创建分镜
+                                 </button>
                             </div>
                         )}
                     </div>

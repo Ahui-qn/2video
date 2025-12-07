@@ -1,8 +1,15 @@
 import React, { useState } from 'react';
-import { Mail, Lock, User, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, ShieldCheck, Loader2 } from 'lucide-react';
+
+interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  isAdmin: boolean;
+}
 
 interface AuthProps {
-  onLogin: (user: { email: string; name: string; isAdmin: boolean }) => void;
+  onLogin: (user: AuthUser) => void;
 }
 
 export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
@@ -10,25 +17,51 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock Auth Logic
-    if (email && password) {
-      if (isRegister && !name) return;
-      
-      // Simulate API delay
-      setTimeout(() => {
-        const mockUser = {
-          email,
-          name: name || email.split('@')[0],
-          isAdmin
-        };
-        localStorage.setItem('script2video_user', JSON.stringify(mockUser));
-        localStorage.setItem('script2video_token', 'mock_jwt_token_' + Date.now());
-        onLogin(mockUser);
-      }, 800);
+    setError(null);
+    if (!email || !password) {
+      setError('请输入邮箱和密码');
+      return;
+    }
+    if (isRegister && !name) {
+      setError('请输入姓名');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const endpoint = isRegister ? 'http://localhost:3001/api/auth/register' : 'http://localhost:3001/api/auth/login';
+      const body = isRegister ? { email, password, name } : { email, password };
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Authentication failed');
+      }
+
+      // Add isAdmin field (default false for regular users)
+      const userWithAdmin: AuthUser = {
+        ...data.user,
+        isAdmin: data.user.isAdmin ?? false
+      };
+      localStorage.setItem('script2video_user', JSON.stringify(userWithAdmin));
+      localStorage.setItem('script2video_token', data.token);
+      onLogin(userWithAdmin);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -108,20 +141,24 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             </div>
 
             {isRegister && (
-               <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsAdmin(!isAdmin)}>
-                  <div className={`w-4 h-4 rounded border flex items-center justify-center ${isAdmin ? 'bg-[#d946ef] border-[#d946ef]' : 'border-slate-500'}`}>
-                      {isAdmin && <ShieldCheck size={10} className="text-white" />}
-                  </div>
-                  <span className="text-xs text-slate-400">注册为管理员账户</span>
-               </div>
+              <div className="text-xs text-slate-500 text-center">
+                注册即代表同意我们的<span className="text-[#ccff00] cursor-pointer">服务条款</span>
+              </div>
+            )}
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-3 rounded-xl">
+                {error}
+              </div>
             )}
 
             <button
               type="submit"
-              className="w-full py-4 bg-[#ccff00] hover:bg-[#d9f99d] text-black font-bold rounded-xl flex items-center justify-center gap-2 transition-all mt-4 hover:scale-[1.02]"
+              disabled={isLoading}
+              className="w-full bg-[#ccff00] hover:bg-[#dfff40] text-black font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isRegister ? '立即注册' : '登 录'}
-              <ArrowRight size={18} />
+              {isLoading ? <Loader2 size={18} className="animate-spin" /> : (isRegister ? '立即注册' : '登 录')}
+              {!isLoading && <ArrowRight size={18} />}
             </button>
           </form>
 

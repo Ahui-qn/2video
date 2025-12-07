@@ -160,11 +160,11 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
           <span>剧本分集 (EPISODES)</span>
       </div>
 
-      {/* Locked Overlay */}
+      {/* Locked Overlay - Only show for viewers */}
       {locked && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm cursor-not-allowed">
           <Lock size={48} className="text-slate-600 mb-4" />
-          <p className="text-sm font-mono text-slate-500 uppercase tracking-widest">未解锁 / 请先上传剧本</p>
+          <p className="text-sm font-mono text-slate-500 uppercase tracking-widest">仅查看模式</p>
         </div>
       )}
 

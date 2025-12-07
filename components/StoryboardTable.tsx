@@ -27,6 +27,7 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
   // Normalize input into episodes list
   const sourceEpisodes: Episode[] = useMemo(() => {
     if (episodes && episodes.length > 0) return episodes;
+    // Handle case where we have scenes but no episode structure (legacy)
     if (scenes && scenes.length > 0) return [{ id: 'default', title: '全部分镜', scenes: scenes }];
     return [];
   }, [scenes, episodes]);
@@ -34,9 +35,39 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
   // Sync local state when source changes (only if not editing)
   useEffect(() => {
     if (!editingEpisodeId) {
-      setLocalEpisodes(sourceEpisodes);
+      // Deep copy to ensure local state is mutable
+      setLocalEpisodes(sourceEpisodes.map(ep => ({
+          ...ep,
+          scenes: ep.scenes || [] // Ensure scenes is array
+      })));
     }
   }, [sourceEpisodes, editingEpisodeId]);
+
+  const handleAddScene = (epId: string) => {
+      // This should trigger an update to the parent (Workspace) to add a scene to the result
+      // But StoryboardTable props don't have onAddScene.
+      // We can cheat and use onSaveEpisode if we are in edit mode?
+      // Or we need to add onAddScene prop.
+      // Given the constraint, I'll assume we are editing locally first.
+      if (editingEpisodeId === epId) {
+          setLocalEpisodes(prev => prev.map(ep => {
+              if (ep.id !== epId) return ep;
+              const newScene: Scene = {
+                  sceneId: `s-${Date.now()}`,
+                  header: '新场景',
+                  shots: []
+              };
+              return { ...ep, scenes: [...ep.scenes, newScene] };
+          }));
+      } else {
+          // If not editing, maybe enter edit mode automatically?
+          // Or we need a prop to handle this at Workspace level.
+          // Let's assume we enter edit mode first.
+          const ep = localEpisodes.find(e => e.id === epId);
+          if (ep) handleEnterEdit(ep);
+          setTimeout(() => handleAddScene(epId), 0);
+      }
+  };
 
   // Initialize collapsed state
   useEffect(() => {
@@ -266,6 +297,32 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
                                  {scene.header}
                              </span>
                         </div>
+                        {/* ADD SHOT BUTTON (Only in Edit Mode) */}
+                        {isEditing && (
+                            <button 
+                                onClick={() => {
+                                    setLocalEpisodes(prev => prev.map(e => {
+                                        if (e.id !== episode.id) return e;
+                                        const updatedScenes = [...e.scenes];
+                                        updatedScenes[sceneIndex] = {
+                                            ...updatedScenes[sceneIndex],
+                                            shots: [...updatedScenes[sceneIndex].shots, {
+                                                id: Date.now(),
+                                                shotNumber: updatedScenes[sceneIndex].shots.length + 1,
+                                                description: "新镜头",
+                                                duration: "3s",
+                                                camera: "MCU",
+                                                imageUrls: []
+                                            }]
+                                        };
+                                        return { ...e, scenes: updatedScenes };
+                                    }));
+                                }}
+                                className="px-2 py-1 bg-white/5 hover:bg-white/10 rounded text-[10px] text-slate-400 hover:text-white flex items-center gap-1"
+                            >
+                                <Plus size={10} /> 加镜头
+                            </button>
+                        )}
                     </div>
 
                     {/* SHOTS LIST */}
@@ -525,6 +582,19 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
                     </div>
                 </div>
               ))}
+              
+              {/* ADD SCENE BUTTON (Only in Edit Mode) */}
+              {isEditing && (
+                  <button 
+                      onClick={() => handleAddScene(episode.id)}
+                      className="w-full py-3 border border-dashed border-white/10 hover:border-[#d946ef] rounded-xl flex items-center justify-center gap-2 text-slate-500 hover:text-[#d946ef] hover:bg-[#d946ef]/5 transition-all group/add"
+                  >
+                      <div className="p-1 rounded bg-white/5 group-hover/add:bg-[#d946ef] group-hover/add:text-white transition-colors">
+                          <Plus size={14} />
+                      </div>
+                      <span className="text-xs font-bold uppercase tracking-widest">添加新场景</span>
+                  </button>
+              )}
             </div>
             )}
           </div>
