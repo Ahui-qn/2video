@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload, User, Type, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { X, Upload, Type, FileText, Image as ImageIcon } from 'lucide-react';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -9,14 +9,12 @@ interface CreateProjectModalProps {
 
 export interface ProjectData {
   name: string;
-  creator: string;
   description: string;
   coverImage: string | null;
 }
 
 export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose, onCreate }) => {
   const [name, setName] = useState('');
-  const [creator, setCreator] = useState('当前用户'); // 默认值
   const [description, setDescription] = useState('');
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -51,7 +49,7 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onCreate({ name, creator, description, coverImage });
+    onCreate({ name, description, coverImage });
   };
 
   return (
@@ -89,19 +87,6 @@ export const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, 
               required
             />
             <div className="text-right text-[10px] text-slate-600 font-mono">{name.length}/50</div>
-          </div>
-
-          {/* Creator */}
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-bold text-[#d946ef] uppercase tracking-widest">
-              <User size={12} /> 创建人
-            </label>
-            <input 
-              type="text" 
-              value={creator}
-              onChange={(e) => setCreator(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-slate-300 placeholder-slate-600 focus:border-[#d946ef] outline-none transition-all"
-            />
           </div>
 
           {/* Description */}

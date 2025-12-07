@@ -160,13 +160,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
           <span>剧本分集 (EPISODES)</span>
       </div>
 
-      {/* Locked Overlay - Only show for viewers */}
-      {locked && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/50 backdrop-blur-sm cursor-not-allowed">
-          <Lock size={48} className="text-slate-600 mb-4" />
-          <p className="text-sm font-mono text-slate-500 uppercase tracking-widest">仅查看模式</p>
-        </div>
-      )}
+      {/* 查看者可以看到内容，但不能编辑 - 移除全屏遮罩 */}
 
       {/* Main List Area */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 flex flex-col min-h-0">
@@ -201,7 +195,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                      : ''
                  }
                `}
-               onClick={() => !locked && !isHidden && !isExpanded && onExpandEpisode(ep.id)}
+               onClick={() => !isHidden && !isExpanded && onExpandEpisode(ep.id)}
              >
                 {/* Header */}
                 <div className={`px-4 py-4 flex items-center justify-between shrink-0 relative ${isExpanded ? 'border-b border-[#ccff00]/20' : ''}`}>
@@ -217,7 +211,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                             className={`appearance-none w-16 h-6 rounded flex items-center justify-center text-[10px] font-bold font-mono transition-all shrink-0 cursor-pointer outline-none text-center
                                 ${ep.status === 'analyzed' || ep.status === 'completed' ? 'bg-green-500 text-black' : 
                                   ep.status === 'analyzing' ? 'bg-blue-500 text-white animate-pulse' : 
-                                  'bg-slate-600 text-white'}
+                                  'bg-gray-500 text-white'}
                             `}
                             disabled={locked || isAnalyzing}
                           >
@@ -242,7 +236,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                       className="flex items-center gap-2 shrink-0 z-50 isolate" 
                       onClick={(e) => e.stopPropagation()}
                    >
-                      {isExpanded && !isEditing && (
+                      {isExpanded && !isEditing && !locked && (
                           <button 
                             onClick={() => startEditing(ep)}
                             className="p-1.5 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded transition-all"
@@ -257,7 +251,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                         onClick={(e) => {
                             e.preventDefault(); 
                             e.stopPropagation();
-                            if(!locked && !isHidden) onExpandEpisode(ep.id);
+                            if(!isHidden) onExpandEpisode(ep.id);
                         }} 
                         className="cursor-pointer p-1 text-slate-400 hover:text-white"
                       >

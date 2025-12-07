@@ -58,18 +58,22 @@ export function setupSocket(io) {
         socket.join(projectId);
 
         // 5. Broadcast Presence - format users correctly for client
-        const activeSockets = await io.in(projectId).fetchSockets();
-        const activeUsersList = activeSockets
-          .map(s => socketUsers[s.id])
-          .filter(u => u && u.projectId === projectId)
-          .map(u => ({
-            id: u.id,
-            name: u.name,
-            email: u.email,
-            role: u.role,
-            socketId: u.socketId
-          }));
-        io.to(projectId).emit('room-users-update', activeUsersList);
+        // 使用setTimeout确保socket已经完全加入房间后再广播
+        setTimeout(async () => {
+          const activeSockets = await io.in(projectId).fetchSockets();
+          const activeUsersList = activeSockets
+            .map(s => socketUsers[s.id])
+            .filter(u => u && u.projectId === projectId)
+            .map(u => ({
+              id: u.id,
+              name: u.name,
+              email: u.email,
+              role: u.role,
+              socketId: u.socketId
+            }));
+          console.log('Broadcasting room-users-update:', activeUsersList.length, 'users');
+          io.to(projectId).emit('room-users-update', activeUsersList);
+        }, 100);
 
         // 6. Send Initial State to Client with full member info
         const allMembers = await db.all(`

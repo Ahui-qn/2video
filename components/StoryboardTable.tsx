@@ -1,6 +1,71 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Scene, Shot, Episode } from '../types';
-import { Camera, User, MessageSquare, Plus, Trash2, Video, Edit3, Save, X, Image as ImageIcon, Download, Copy, Maximize2, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Camera, User, MessageSquare, Plus, Trash2, Video, Edit3, Save, X, Image as ImageIcon, Download, Copy, Maximize2, Loader2, AlertCircle, CheckCircle2, MoreVertical } from 'lucide-react';
+
+/**
+ * 镜头三点菜单组件
+ */
+const ShotMenu: React.FC<{
+  isEditing: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}> = ({ isEditing, onEdit, onDelete }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+        className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors opacity-0 group-hover/shot:opacity-100"
+      >
+        <MoreVertical size={14} />
+      </button>
+
+      {isOpen && (
+        <>
+          {/* 点击外部关闭 */}
+          <div 
+            className="fixed inset-0 z-40" 
+            onClick={() => setIsOpen(false)}
+          />
+          
+          {/* 菜单内容 */}
+          <div className="absolute right-0 top-full mt-1 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl z-50 min-w-[120px] overflow-hidden">
+            {!isEditing && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                  setIsOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-white/10 flex items-center gap-2 transition-colors"
+              >
+                <Edit3 size={12} />
+                编辑
+              </button>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm('确定要删除这个镜头吗？')) {
+                  onDelete();
+                }
+                setIsOpen(false);
+              }}
+              className="w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition-colors"
+            >
+              <Trash2 size={12} />
+              删除
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
 interface StoryboardTableProps {
   scenes?: Scene[]; 
@@ -304,16 +369,21 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
                                     setLocalEpisodes(prev => prev.map(e => {
                                         if (e.id !== episode.id) return e;
                                         const updatedScenes = [...e.scenes];
+                                        const newShot: Shot = {
+                                            id: Date.now().toString(),
+                                            shotSize: '中景',
+                                            cameraAngle: '平视',
+                                            visualDescription: '新镜头',
+                                            environment: '',
+                                            characters: '',
+                                            action: '',
+                                            dialogue: '',
+                                            duration: '3s',
+                                            imageUrls: []
+                                        };
                                         updatedScenes[sceneIndex] = {
                                             ...updatedScenes[sceneIndex],
-                                            shots: [...updatedScenes[sceneIndex].shots, {
-                                                id: Date.now(),
-                                                shotNumber: updatedScenes[sceneIndex].shots.length + 1,
-                                                description: "新镜头",
-                                                duration: "3s",
-                                                camera: "MCU",
-                                                imageUrls: []
-                                            }]
+                                            shots: [...updatedScenes[sceneIndex].shots, newShot]
                                         };
                                         return { ...e, scenes: updatedScenes };
                                     }));
@@ -329,8 +399,8 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
                     <div className="flex flex-col gap-0">
                         {scene.shots.map((shot, shotIndex) => (
                             <React.Fragment key={shotIndex}>
-                                {/* INSERT SHOT UI (Only in Edit Mode) */}
-                                {isEditing && onInsertShot && (
+                                {/* INSERT SHOT UI - 始终显示，不需要编辑模式 */}
+                                {onInsertShot && (
                                     <div 
                                         className="h-2 w-full -my-1 relative z-10 opacity-0 hover:opacity-100 transition-all flex items-center justify-center cursor-pointer group/insert"
                                         onClick={() => onInsertShot(epIndex, sceneIndex, shotIndex)}
@@ -348,23 +418,18 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
                                     onDragOver={(e) => e.preventDefault()}
                                     onDrop={(e) => handleShotDrop(e, epIndex, sceneIndex, shotIndex)}
                                 >
+                                    {/* 三点菜单 - 右上角 */}
+                                    <div className="absolute top-2 right-2 z-30">
+                                        <ShotMenu 
+                                            isEditing={isEditing}
+                                            onEdit={() => !isEditing && handleEnterEdit(episode)}
+                                            onDelete={() => onDeleteShot && onDeleteShot(epIndex, sceneIndex, shotIndex)}
+                                        />
+                                    </div>
                                     
                                     {/* 1. INDEX Column */}
                                     <div className="flex flex-col items-center justify-start pt-1 gap-2 w-8 shrink-0">
                                         <span className="text-[10px] font-mono text-slate-500 font-bold">#{shot.id}</span>
-                                        {isEditing && onDeleteShot && (
-                                            <button 
-                                                onMouseDown={(e) => e.stopPropagation()}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onDeleteShot(epIndex, sceneIndex, shotIndex);
-                                                }}
-                                                className="text-slate-600 hover:text-red-500 transition-all p-1 cursor-pointer pointer-events-auto"
-                                                title="删除镜头"
-                                            >
-                                                <Trash2 size={12} />
-                                            </button>
-                                        )}
                                     </div>
 
                                     {/* 2. Main Content Grid */}

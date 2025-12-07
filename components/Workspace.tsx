@@ -21,7 +21,7 @@ import { SettingsModal } from './SettingsModal';
 import { analyzeScript, extractAssetsOnly } from '../services/geminiService';
 import { readFileContent } from '../services/fileService';
 import { AppState, AnalysisResult, Shot, ModelConfig, UserKeys, ScriptEpisode, CharacterProfile, AssetProfile, Project, HistoryRecord } from '../types';
-import { Download, Clapperboard, Sparkles, Settings, ChevronDown, Cpu, Moon, Square, ArrowLeft, Layers, Image as ImageIcon, History as HistoryIcon, Trash2, Users, Shield, Wifi } from 'lucide-react';
+import { Download, Clapperboard, Sparkles, Settings, ChevronDown, Cpu, Moon, Square, ArrowLeft, Layers, Image as ImageIcon, History as HistoryIcon, Trash2, Users, Shield, Wifi, Save } from 'lucide-react';
 import { useCollaboration, Collaborator, ProjectData } from './CollaborationContext';
 import { TeamModal } from './TeamModal';
 import { ManualShotModal } from './ManualShotModal';
@@ -171,31 +171,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
   }, [socket, setIsRemoteUpdate]);
 
   /**
-   * 广播本地更新到其他用户（防抖1秒）
+   * 手动保存项目数据
    * 
-   * 为什么需要防抖？
-   * - 用户快速编辑时避免频繁发送网络请求
-   * - 减少服务器压力和带宽消耗
-   * 
-   * 为什么检查isRemoteUpdate？
-   * - 防止同步循环：收到远程更新 -> 触发本地状态变化 -> 又广播出去
+   * 改为手动保存机制：用户点击保存按钮才同步到其他用户
+   * 这样可以避免编辑过程中的频繁同步，给用户更多控制权
    */
-  useEffect(() => {
-    // 如果是远程更新，跳过广播
-    if (isRemoteUpdate || isRemoteUpdateRef.current) return;
-    
-    const timer = setTimeout(() => {
-      // 再次检查ref，确保不是远程更新
-      if (role !== 'viewer' && !isRemoteUpdateRef.current) {
-        updateProject({
-          result,
-          episodes,
-          globalAssets
-        });
-      }
-    }, 1000);  // 1秒防抖
-    return () => clearTimeout(timer);
-  }, [result, episodes, globalAssets, role, updateProject, isRemoteUpdate]);
+  const handleManualSave = useCallback(() => {
+    if (role !== 'viewer' && !isRemoteUpdateRef.current) {
+      updateProject({
+        result,
+        episodes,
+        globalAssets
+      });
+      // 可以添加保存成功提示
+      console.log('项目已保存并同步');
+    }
+  }, [result, episodes, globalAssets, role, updateProject]);
 
   // Load Keys
   useEffect(() => {
@@ -901,6 +892,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
               </button>
               <div className="w-px h-6 bg-white/10"></div>
 
+              {/* 手动保存按钮 - 只有编辑者和管理员可见 */}
+              {role !== 'viewer' && (
+                  <>
+                  <button 
+                      onClick={handleManualSave} 
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 transition-all uppercase"
+                      title="保存并同步到其他用户"
+                  >
+                      <Save size={14} /> 保存
+                  </button>
+                  <div className="w-px h-6 bg-white/10"></div>
+                  </>
+              )}
+
               {globalAssets && result && (
                   <>
                   <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-[#ccff00] hover:bg-white/5 transition-all uppercase">
@@ -1066,15 +1071,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
                             分镜表 (STORYBOARD)
                         </div>
                         {result ? (
-                            <div className={`flex-1 p-4 overflow-hidden relative ${role === 'viewer' ? 'pointer-events-none opacity-80' : ''}`}>
+                            <div className="flex-1 p-4 overflow-hidden relative">
                                  <StoryboardTable 
                                     scenes={result.scenes} 
                                     episodes={result.episodes} 
-                                    onUpdateShot={handleUpdateShot} 
-                                    onAddShot={handleAddShot}
-                                    onDeleteShot={handleDeleteShot}
-                                    onInsertShot={handleAddShot}
-                                    onSaveEpisode={handleSaveEpisode}
+                                    onUpdateShot={role !== 'viewer' ? handleUpdateShot : () => {}} 
+                                    onAddShot={role !== 'viewer' ? handleAddShot : undefined}
+                                    onDeleteShot={role !== 'viewer' ? handleDeleteShot : undefined}
+                                    onInsertShot={role !== 'viewer' ? handleAddShot : undefined}
+                                    onSaveEpisode={role !== 'viewer' ? handleSaveEpisode : undefined}
                                     onAddHistory={addHistory}
                                  />
                             </div>

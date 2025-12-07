@@ -58,25 +58,38 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
   const locationAssets = data.assets.filter(a => a.type === 'Location');
   const propAssets = data.assets.filter(a => a.type !== 'Location');
 
-  // Render Card Helper
+  /**
+   * 渲染资产卡片 - 统一大小和酸性设计风格
+   */
   const renderCard = (item: any, type: 'character' | 'asset', index: number, originalIndex: number) => {
       const isEditing = editingId === `${type}-${originalIndex}`;
       const isMenuOpen = activeMenuId === `${type}-${originalIndex}`;
       const isDragActive = draggingIndex?.type === type && draggingIndex.index === originalIndex;
 
+      // 根据类型设置不同的强调色
+      const accentColor = type === 'character' ? '#d946ef' : (item.type === 'Location' ? '#ccff00' : '#06b6d4');
+
       return (
         <div 
             key={`${type}-${originalIndex}`}
-            className={`bg-white/[0.02] border p-3 shadow-lg transition-all group relative overflow-visible backdrop-blur-md flex flex-col gap-3 rounded-2xl ${isDragActive ? 'border-[#d946ef] bg-[#d946ef]/10' : 'border-white/10 hover:border-[#d946ef]/50'}`}
+            className={`
+              bg-white/[0.03] border shadow-lg transition-all group relative overflow-hidden backdrop-blur-md 
+              flex flex-col rounded-2xl h-[280px]
+              ${isDragActive ? `border-[${accentColor}] bg-[${accentColor}]/10` : 'border-white/10 hover:border-white/20'}
+              hover:shadow-[0_0_30px_rgba(217,70,239,0.1)] hover:scale-[1.02]
+            `}
             onDragOver={(e) => handleDragOver(e, type, originalIndex)}
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, type, originalIndex)}
         >
+             {/* 顶部渐变装饰 */}
+             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+
              {/* Header & Menu */}
-             <div className="flex justify-between items-start relative z-20">
+             <div className="flex justify-between items-center p-3 border-b border-white/5 bg-black/20">
                  {isEditing ? (
                      <input 
-                        className="text-sm font-bold font-display text-white bg-black/40 border border-white/20 rounded px-1 w-full outline-none focus:border-[#d946ef]"
+                        className="text-sm font-bold font-display text-white bg-black/40 border border-white/20 rounded px-2 py-1 w-full outline-none focus:border-[#d946ef]"
                         value={item.name}
                         onChange={(e) => onUpdateText(type, originalIndex, 'name', e.target.value)}
                      />
@@ -84,81 +97,85 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
                      <h4 className="text-sm font-bold font-display text-white truncate pr-6">{item.name}</h4>
                  )}
 
-                 {/* Kebab Menu or Confirm Button */}
-                 <div className="absolute right-0 top-0">
+                 {/* 菜单按钮 */}
+                 <div className="shrink-0">
                      {isEditing ? (
-                         <button onClick={() => setEditingId(null)} className="p-1 bg-[#ccff00] text-black rounded hover:scale-110 transition-transform">
+                         <button onClick={() => setEditingId(null)} className="p-1.5 bg-[#ccff00] text-black rounded-lg hover:scale-110 transition-transform">
                              <Check size={12} />
                          </button>
                      ) : (
                          <div className="relative">
                              <button 
                                 onClick={() => setActiveMenuId(isMenuOpen ? null : `${type}-${originalIndex}`)}
-                                className="p-1 text-slate-400 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
+                                className="p-1.5 text-slate-400 hover:text-white transition-colors opacity-0 group-hover:opacity-100 hover:bg-white/10 rounded-lg"
                              >
                                  <MoreVertical size={14} />
                              </button>
                              {isMenuOpen && (
-                                 <div className="absolute right-0 top-6 bg-[#0f0518] border border-white/10 rounded-lg shadow-xl py-1 w-24 z-50 flex flex-col">
-                                     <button onClick={() => { setEditingId(`${type}-${originalIndex}`); setActiveMenuId(null); }} className="px-3 py-2 text-[10px] text-left hover:bg-white/5 text-slate-300 flex items-center gap-2">
-                                         <Pencil size={10} /> 编辑
-                                     </button>
-                                     <button onClick={() => { copyToClipboard(item.visualSummary || item.description); setActiveMenuId(null); }} className="px-3 py-2 text-[10px] text-left hover:bg-white/5 text-slate-300 flex items-center gap-2">
-                                         <Copy size={10} /> 复制
-                                     </button>
-                                     <button onClick={() => { 
-                                         if(type === 'character') onDeleteCharacter?.(originalIndex);
-                                         else onDeleteAsset?.(originalIndex);
-                                         setActiveMenuId(null); 
-                                     }} className="px-3 py-2 text-[10px] text-left hover:bg-red-500/20 text-red-400 flex items-center gap-2">
-                                         <Trash2 size={10} /> 删除
-                                     </button>
-                                 </div>
+                                 <>
+                                     <div className="fixed inset-0 z-40" onClick={() => setActiveMenuId(null)} />
+                                     <div className="absolute right-0 top-8 bg-[#1a1a1a] border border-white/10 rounded-xl shadow-xl py-1 w-28 z-50 flex flex-col overflow-hidden">
+                                         <button onClick={() => { setEditingId(`${type}-${originalIndex}`); setActiveMenuId(null); }} className="px-3 py-2.5 text-xs text-left hover:bg-white/5 text-slate-300 flex items-center gap-2 transition-colors">
+                                             <Pencil size={12} /> 编辑
+                                         </button>
+                                         <button onClick={() => { copyToClipboard(item.visualSummary || item.description); setActiveMenuId(null); }} className="px-3 py-2.5 text-xs text-left hover:bg-white/5 text-slate-300 flex items-center gap-2 transition-colors">
+                                             <Copy size={12} /> 复制
+                                         </button>
+                                         <button onClick={() => { 
+                                             if(type === 'character') onDeleteCharacter?.(originalIndex);
+                                             else onDeleteAsset?.(originalIndex);
+                                             setActiveMenuId(null); 
+                                         }} className="px-3 py-2.5 text-xs text-left hover:bg-red-500/10 text-red-400 flex items-center gap-2 transition-colors">
+                                             <Trash2 size={12} /> 删除
+                                         </button>
+                                     </div>
+                                 </>
                              )}
                          </div>
                      )}
                  </div>
              </div>
 
-             {/* Image Grid */}
-             <div className="w-full bg-black/20 rounded-xl p-2 border border-white/5 relative z-10">
-                  <div className="grid grid-cols-4 gap-1 w-full">
-                      {item.imageUrls?.map((url: string, imgIdx: number) => (
-                          <div key={imgIdx} className="relative w-full aspect-square group/img transition-transform hover:scale-[1.02]">
+             {/* 图片区域 - 固定高度 */}
+             <div className="p-3 flex-1 min-h-0">
+                  <div className="grid grid-cols-2 gap-2 h-full">
+                      {item.imageUrls?.slice(0, 4).map((url: string, imgIdx: number) => (
+                          <div key={imgIdx} className="relative aspect-square group/img transition-transform hover:scale-[1.02]">
                               <img 
                                 src={url} 
-                                className="w-full h-full object-cover rounded-lg shadow-sm border border-white/10 cursor-pointer hover:border-[#d946ef]"
+                                className="w-full h-full object-cover rounded-xl shadow-sm border border-white/10 cursor-pointer hover:border-[#d946ef] transition-colors"
                                 onClick={() => setLightboxImage(url)}
                               />
                               {isEditing && (
                                   <button 
                                     onClick={(e) => { e.stopPropagation(); onRemoveImage(type, originalIndex, imgIdx); }}
-                                    className="absolute -top-1 -right-1 p-0.5 bg-red-500 text-white rounded-full hover:bg-red-600 cursor-pointer z-20"
+                                    className="absolute -top-1 -right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 cursor-pointer z-20 shadow-lg"
                                   >
-                                    <X size={8} />
+                                    <X size={10} />
                                   </button>
                               )}
                           </div>
                       ))}
                       {(!item.imageUrls || item.imageUrls.length < 4) && (
-                        <label className="w-full aspect-square border border-dashed border-white/10 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-[#d946ef] hover:bg-white/5 transition-all">
-                            <Plus size={12} className="text-slate-600" />
+                        <label className="aspect-square border-2 border-dashed border-white/10 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-[#d946ef] hover:bg-white/5 transition-all group/add">
+                            <Plus size={20} className="text-slate-600 group-hover/add:text-[#d946ef] transition-colors" />
+                            <span className="text-[9px] text-slate-600 mt-1 group-hover/add:text-slate-400">添加图片</span>
                             <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFileChange(e, type, originalIndex)} />
                         </label>
                       )}
                   </div>
              </div>
 
-             {/* Text Content */}
-             <div className="space-y-2">
+             {/* 描述文本 - 固定高度 */}
+             <div className="p-3 pt-0 h-[60px]">
                 {isEditing ? (
                     <textarea 
-                        className="w-full bg-black/40 border border-white/20 rounded p-2 text-[10px] text-slate-300 resize-none h-16 outline-none focus:border-[#d946ef]"
+                        className="w-full bg-black/40 border border-white/20 rounded-lg p-2 text-xs text-slate-300 resize-none h-full outline-none focus:border-[#d946ef]"
                         value={type === 'character' ? item.visualSummary : item.description}
                         onChange={(e) => onUpdateText(type, originalIndex, type === 'character' ? 'visualSummary' : 'description', e.target.value)}
                     />
                 ) : (
-                    <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-3">
+                    <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">
                         {type === 'character' ? item.visualSummary : item.description}
                     </p>
                 )}
@@ -169,37 +186,55 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
 
   return (
     <>
-    <div className="h-full flex overflow-hidden p-2 gap-2 bg-[#0f0518]">
-        {/* Column 1: Characters */}
-        <div className="flex-1 flex flex-col min-w-0 bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
-            <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/20">
-                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">角色 (Characters)</h3>
-                <button onClick={onAddCharacter} className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Plus size={14}/></button>
+    {/* 全局资产库 - 与分镜表区域大小一致 */}
+    <div className="h-full overflow-y-auto pr-2 pb-20 custom-scrollbar">
+        <div className="flex flex-col gap-6 p-4">
+            {/* 角色区域 */}
+            <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between bg-gradient-to-r from-[#d946ef]/10 to-transparent">
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-[#d946ef] shadow-[0_0_8px_#d946ef]"></span>
+                        角色 (Characters)
+                    </h3>
+                    <button onClick={onAddCharacter} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-[#d946ef] transition-colors">
+                        <Plus size={16}/>
+                    </button>
+                </div>
+                <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {filteredCharacters.map((char, idx) => renderCard(char, 'character', idx, data.characters.indexOf(char)))}
+                </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar grid grid-cols-1 lg:grid-cols-2 gap-2 content-start">
-                {filteredCharacters.map((char, idx) => renderCard(char, 'character', idx, data.characters.indexOf(char)))}
-            </div>
-        </div>
 
-        {/* Column 2: Scenes */}
-        <div className="flex-1 flex flex-col min-w-0 bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
-            <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/20">
-                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">场景 (Scenes)</h3>
-                <button onClick={onAddAsset} className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Plus size={14}/></button>
+            {/* 场景区域 */}
+            <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between bg-gradient-to-r from-[#ccff00]/10 to-transparent">
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-[#ccff00] shadow-[0_0_8px_#ccff00]"></span>
+                        场景 (Scenes)
+                    </h3>
+                    <button onClick={onAddAsset} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-[#ccff00] transition-colors">
+                        <Plus size={16}/>
+                    </button>
+                </div>
+                <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {locationAssets.map((asset, idx) => renderCard(asset, 'asset', idx, data.assets.indexOf(asset)))}
+                </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar grid grid-cols-1 lg:grid-cols-2 gap-2 content-start">
-                {locationAssets.map((asset, idx) => renderCard(asset, 'asset', idx, data.assets.indexOf(asset)))}
-            </div>
-        </div>
 
-        {/* Column 3: Props */}
-        <div className="flex-1 flex flex-col min-w-0 bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
-            <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/20">
-                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">道具 (Props)</h3>
-                <button onClick={onAddAsset} className="p-1 hover:bg-white/10 rounded text-slate-400 hover:text-white"><Plus size={14}/></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar grid grid-cols-1 lg:grid-cols-2 gap-2 content-start">
-                {propAssets.map((asset, idx) => renderCard(asset, 'asset', idx, data.assets.indexOf(asset)))}
+            {/* 道具区域 */}
+            <div className="bg-black/20 rounded-2xl border border-white/5 overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between bg-gradient-to-r from-cyan-500/10 to-transparent">
+                    <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_#06b6d4]"></span>
+                        道具 (Props)
+                    </h3>
+                    <button onClick={onAddAsset} className="p-1.5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-cyan-400 transition-colors">
+                        <Plus size={16}/>
+                    </button>
+                </div>
+                <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {propAssets.map((asset, idx) => renderCard(asset, 'asset', idx, data.assets.indexOf(asset)))}
+                </div>
             </div>
         </div>
     </div>
