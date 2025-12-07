@@ -1,3 +1,11 @@
+/**
+ * App.tsx - 应用主入口组件
+ * 
+ * 核心职责：
+ * 1. 管理应用的三个主要视图：登录(auth)、项目列表(home)、工作区(workspace)
+ * 2. 处理用户认证状态和项目选择
+ * 3. 提供协作上下文包装器，使工作区支持实时多人协作
+ */
 import React, { useState, useEffect } from 'react';
 import { Auth } from './components/Auth';
 import { ProjectList } from './components/ProjectList';
@@ -6,8 +14,10 @@ import { CreateProjectModal, ProjectData } from './components/CreateProjectModal
 import { Project } from './types';
 import { CollaborationProvider } from './components/CollaborationContext';
 
+// 视图状态：auth=登录页, home=项目列表, workspace=工作区
 type ViewState = 'auth' | 'home' | 'workspace';
 
+// 应用用户信息（简化版，用于前端状态管理）
 interface AppUser {
   id: string;
   email: string;
@@ -16,12 +26,14 @@ interface AppUser {
 }
 
 const App: React.FC = () => {
+  // 核心状态：当前视图、用户信息、当前项目
   const [view, setView] = useState<ViewState>('auth');
   const [user, setUser] = useState<AppUser | null>(null);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // Auth Check on Mount
+  // 组件挂载时检查本地存储，恢复登录状态
+  // 这样用户刷新页面后不需要重新登录
   useEffect(() => {
     const storedUser = localStorage.getItem('script2video_user');
     if (storedUser) {
@@ -30,22 +42,28 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // URL Join Handler
+  // 处理URL中的项目邀请链接（例如：?join=project-id）
+  // 当用户点击分享链接时，自动加入对应项目
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const joinId = params.get('join');
     if (joinId && user) {
-        // Clean URL
+        // 清理URL，避免重复加入
         window.history.replaceState({}, '', '/');
         handleJoinProject(joinId);
     }
   }, [user]);
 
+  // 登录成功回调：保存用户信息并跳转到项目列表
   const handleLogin = (userData: AppUser) => {
     setUser(userData);
     setView('home');
   };
 
+  /**
+   * 创建新项目
+   * 流程：调用后端API创建项目 -> 成功后直接进入工作区
+   */
   const handleCreateProject = async (data: ProjectData) => {
     try {
       const token = localStorage.getItem('script2video_token');
@@ -79,15 +97,24 @@ const App: React.FC = () => {
     }
   };
 
+  /**
+   * 保存项目（更新本地状态）
+   * 注意：实际数据通过WebSocket实时同步到服务器，这里只更新本地引用
+   */
   const handleSaveProject = (project: Project) => {
     setCurrentProject(project);
-    // Note: Project data is now saved via socket collaboration
-    // No need to save to localStorage as server is the source of truth
   };
 
+  /**
+   * 加入已存在的项目（通过分享链接）
+   * 
+   * 工作流程：
+   * 1. 创建一个占位项目对象，立即显示"加载中"界面
+   * 2. CollaborationProvider会自动连接WebSocket并加入项目房间
+   * 3. 服务器返回真实项目数据后，通过Context更新Workspace
+   * 4. 如果项目不存在，服务器会发送错误事件
+   */
   const handleJoinProject = async (projectId: string) => {
-      // Create a stub project - the CollaborationProvider will fetch real data
-      // and update the Workspace state via context
       const stubProject: Project = {
           id: projectId,
           name: "加载中...",
@@ -102,16 +129,13 @@ const App: React.FC = () => {
       
       setCurrentProject(stubProject);
       setView('workspace');
-      // Note: The CollaborationProvider will handle:
-      // 1. Connecting to socket
-      // 2. Joining the project room
-      // 3. Receiving project-state with real data
-      // 4. Updating Workspace state via context
-      // 5. Handling project-error if project doesn't exist
   };
 
+  /**
+   * 加载示例项目（用于演示和测试）
+   * 创建一个包含预设数据的赛博朋克主题项目
+   */
   const handleLoadMockProject = async () => {
-    // Create a demo project on the server
     try {
       const token = localStorage.getItem('script2video_token');
       const res = await fetch('http://localhost:3001/api/project', {

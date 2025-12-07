@@ -1,3 +1,17 @@
+/**
+ * Workspace.tsx - 工作区主组件
+ * 
+ * 这是整个应用最复杂的组件，负责：
+ * 1. 管理剧本编辑、AI分析、分镜表展示、资产库
+ * 2. 协调实时协作（接收和广播数据变更）
+ * 3. 处理AI分析流程（两阶段：资产提取 + 分镜生成）
+ * 4. 管理用户交互（添加/编辑/删除镜头、场景、资产）
+ * 
+ * 关键设计决策：
+ * - 使用防抖（1秒）减少协作广播频率
+ * - 使用ref追踪远程更新，防止同步循环
+ * - 支持离线编辑和断线重连
+ */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ScriptEditor } from './ScriptEditor';
 import { StoryboardTable } from './StoryboardTable';
@@ -18,6 +32,7 @@ interface WorkspaceProps {
   onSaveProject: (project: Project) => void;
 }
 
+// 默认第一集的初始状态
 const INITIAL_EPISODE: ScriptEpisode = {
   id: '1',
   title: '第 1 集',
@@ -26,6 +41,7 @@ const INITIAL_EPISODE: ScriptEpisode = {
   isExpanded: true
 };
 
+// 支持的AI模型列表
 const MODELS: ModelConfig[] = [
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'google' },
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'google' },
@@ -36,33 +52,42 @@ const MODELS: ModelConfig[] = [
 ];
 
 export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, onBack }) => {
+  // 从协作上下文获取实时协作相关的状态和方法
   const { 
-    role, 
-    activeUsers, 
-    updateProject, 
-    socket, 
-    isConnected, 
+    role,              // 当前用户角色（admin/editor/viewer）
+    activeUsers,       // 在线用户列表
+    updateProject,     // 广播更新到其他用户
+    socket,            // WebSocket连接
+    isConnected,       // 连接状态
     isLoading: isCollabLoading,
-    projectData: serverProjectData,
+    projectData: serverProjectData,  // 服务器返回的项目数据
     projectInfo,
-    isRemoteUpdate,
+    isRemoteUpdate,    // 标记：当前更新是否来自远程
     setIsRemoteUpdate
   } = useCollaboration();
+  
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showManualShotModal, setShowManualShotModal] = useState(false);
 
-  // --- STATE ---
+  // 当前视图：分镜表 or 资产库
   const [activeView, setActiveView] = useState<'storyboard' | 'assets'>('storyboard');
 
-  // --- 核心状态管理 (Core State Management) ---
+  /**
+   * 核心状态
+   * 
+   * - appState: AI分析状态（空闲/提取资产/分析中/完成/错误）
+   * - result: AI分析结果（包含分镜表、角色、资产）
+   * - episodes: 剧集列表（用户输入的剧本）
+   * - globalAssets: 全局资产库（从完整剧本提取）
+   */
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [result, setResult] = useState<AnalysisResult | null>(project.data);
   const [episodes, setEpisodes] = useState<ScriptEpisode[]>(project.episodes || [INITIAL_EPISODE]);
   const [globalAssets, setGlobalAssets] = useState<AnalysisResult | null>(project.data);
   
-  // Track if we've initialized from server data
   const initializedFromServer = useRef(false);
 
+  // AI分析配置
   const [customInstructions, setCustomInstructions] = useState('【硬性约束：单镜头<3s；每集镜头≈21；语速≈6字/秒】\n');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState(MODELS[0].id);
@@ -71,63 +96,68 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
   const [showHistory, setShowHistory] = useState(false);
   const [userKeys, setUserKeys] = useState<UserKeys>({});
   
-  // Modals
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
+  // 进度条状态
   const [progress, setProgress] = useState(0);
   const [progressStatus, setProgressStatus] = useState("");
 
+  // 用于取消AI请求的控制器
   const abortControllerRef = useRef<AbortController | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
 
-  // Layout
+  // 布局状态（左右面板宽度）
   const [layout, setLayout] = useState({ left: 320, right: 350 });
   const isResizing = useRef<'left' | 'right' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- INITIALIZE FROM SERVER DATA ---
+  /**
+   * 从服务器数据初始化
+   * 
+   * 为什么总是更新？
+   * - 确保被邀请的用户能获取最新数据
+   * - 处理断线重连后的数据同步
+   */
   useEffect(() => {
-    // Always update from server data when it arrives (not just first time)
-    // This ensures invited users get the latest data
     if (serverProjectData) {
       console.log('Initializing from server data:', serverProjectData);
       initializedFromServer.current = true;
       
-      // Update result if server has data
       if (serverProjectData.result) {
         setResult(serverProjectData.result);
       }
       
-      // Update episodes if server has data
       if (serverProjectData.episodes && serverProjectData.episodes.length > 0) {
         setEpisodes(serverProjectData.episodes);
       }
       
-      // Update global assets if server has data
       if (serverProjectData.globalAssets) {
         setGlobalAssets(serverProjectData.globalAssets);
       }
     }
   }, [serverProjectData]);
 
-  // Use ref to track remote updates to avoid race conditions
+  // 使用ref追踪远程更新，避免竞态条件
   const isRemoteUpdateRef = useRef(false);
 
-  // --- COLLABORATION SYNC ---
-  // Note: We handle project-updated in CollaborationContext via onProjectUpdate callback
-  // This useEffect syncs the context's projectData changes to local state
+  /**
+   * 监听远程更新
+   * 
+   * 当其他用户修改项目时，通过WebSocket接收更新
+   * 设置isRemoteUpdate标记，防止再次广播造成循环
+   */
   useEffect(() => {
     if (!socket) return;
 
     const handleRemoteUpdate = (data: any) => {
       console.log('Received remote update:', data);
-      // Mark as remote update to prevent broadcast loop
       isRemoteUpdateRef.current = true;
       setIsRemoteUpdate(true);
       if (data.result) setResult(data.result);
       if (data.episodes) setEpisodes(data.episodes);
       if (data.globalAssets) setGlobalAssets(data.globalAssets);
-      // Reset flag after state updates
+      
+      // 200ms后清除标记，确保状态更新完成
       setTimeout(() => {
         isRemoteUpdateRef.current = false;
         setIsRemoteUpdate(false);
@@ -140,15 +170,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
     };
   }, [socket, setIsRemoteUpdate]);
 
-  // Broadcast changes when local state updates (Debounced)
-  // Only broadcast if this is a local update, not a remote one
+  /**
+   * 广播本地更新到其他用户（防抖1秒）
+   * 
+   * 为什么需要防抖？
+   * - 用户快速编辑时避免频繁发送网络请求
+   * - 减少服务器压力和带宽消耗
+   * 
+   * 为什么检查isRemoteUpdate？
+   * - 防止同步循环：收到远程更新 -> 触发本地状态变化 -> 又广播出去
+   */
   useEffect(() => {
-    // Skip if this is a remote update to prevent sync loops
-    // Check both state and ref for safety
+    // 如果是远程更新，跳过广播
     if (isRemoteUpdate || isRemoteUpdateRef.current) return;
     
     const timer = setTimeout(() => {
-      // Double-check ref before broadcasting
+      // 再次检查ref，确保不是远程更新
       if (role !== 'viewer' && !isRemoteUpdateRef.current) {
         updateProject({
           result,
@@ -156,7 +193,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
           globalAssets
         });
       }
-    }, 1000);
+    }, 1000);  // 1秒防抖
     return () => clearTimeout(timer);
   }, [result, episodes, globalAssets, role, updateProject, isRemoteUpdate]);
 

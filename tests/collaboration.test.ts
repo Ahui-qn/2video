@@ -1,8 +1,8 @@
 /**
- * Property Tests for Collaboration Bug Fixes
- * Tests the core logic of sync loop prevention, member identity, and authorization
+ * 协作功能Bug修复的属性测试
+ * 测试同步循环防止、成员身份识别和权限控制的核心逻辑
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 
 // ============================================================================
@@ -48,8 +48,8 @@ describe('Sync Loop Prevention', () => {
           episodes: fc.array(fc.anything()),
           globalAssets: fc.anything(),
         }),
-        fc.constantFrom('admin', 'editor'),
-        (projectData, role) => {
+        fc.constantFrom('admin' as const, 'editor' as const, 'viewer' as const),
+        (_projectData, role) => {
           let broadcastCalled = false;
           const isRemoteUpdate = false;
           
@@ -63,7 +63,9 @@ describe('Sync Loop Prevention', () => {
           }
           
           // Property: When isRemoteUpdate is false and role is not viewer, broadcast SHOULD be called
-          expect(broadcastCalled).toBe(true);
+          if (role !== 'viewer') {
+            expect(broadcastCalled).toBe(true);
+          }
         }
       ),
       { numRuns: 100 }
@@ -183,10 +185,10 @@ describe('Authorization Enforcement', () => {
         fc.record({
           userId: fc.uuid(),
           projectId: fc.uuid(),
-          role: fc.constant('viewer'),
+          role: fc.constant('viewer' as const),
         }),
         fc.anything(), // update data
-        (user, updateData) => {
+        (user, _updateData) => {
           // Simulate server-side authorization check from socket.js
           let updateAllowed = false;
           let auditLogCreated = false;
@@ -214,13 +216,14 @@ describe('Authorization Enforcement', () => {
         fc.record({
           userId: fc.uuid(),
           projectId: fc.uuid(),
-          role: fc.constantFrom('editor', 'admin'),
+          role: fc.constantFrom('editor' as const, 'admin' as const),
         }),
         fc.anything(),
-        (user, updateData) => {
+        (user, _updateData) => {
           let updateAllowed = false;
           
-          if (user.role !== 'viewer') {
+          // 编辑者和管理员都有更新权限
+          if (user.role === 'editor' || user.role === 'admin') {
             updateAllowed = true;
           }
           
@@ -269,14 +272,11 @@ describe('Authorization Enforcement', () => {
         fc.uuid(), // userId
         fc.uuid(), // projectId
         fc.boolean(), // isMember
-        fc.constantFrom('editor', 'admin'), // role (if member)
-        (userId, projectId, isMember, role) => {
+        fc.constantFrom('editor' as const, 'admin' as const, 'viewer' as const), // role (if member)
+        (userId, _projectId, isMember, role) => {
           // Simulate the double-check logic from socket.js
           let updateAllowed = false;
           let auditLogCreated = false;
-          
-          // First check: is user tracked in socket state
-          const socketUser = { id: userId, projectId, role };
           
           // Second check: verify membership in database
           const membership = isMember ? { role } : null;

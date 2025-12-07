@@ -1,8 +1,31 @@
-
+/**
+ * services/geminiService.ts - AI剧本分析服务
+ * 
+ * 核心功能：
+ * 1. 调用大语言模型（Gemini/DeepSeek/OpenAI/Moonshot）分析剧本
+ * 2. 提取角色、场景、道具等资产信息
+ * 3. 生成详细的分镜表（镜头、景别、运镜、台词、时长等）
+ * 
+ * 两阶段分析流程：
+ * 阶段1：extractAssetsOnly - 分析完整剧本，建立全局资产库
+ * 阶段2：analyzeScript - 分析单集剧本，引用全局资产生成分镜
+ * 
+ * 为什么分两阶段？
+ * - 保证角色和场景描述的一致性（同一个场景在不同集中描述相同）
+ * - 减少重复分析，提高效率
+ * - 支持多集剧本的渐进式处理
+ */
 import { AnalysisResult, UserKeys, LLMProvider, CharacterProfile, AssetProfile, Episode, Scene, Shot } from "../types";
 import { GoogleGenAI } from "@google/genai";
 
-// --- Helper: Clean and Parse JSON ---
+/**
+ * 清理并解析AI返回的JSON
+ * 
+ * 为什么需要清理？
+ * - 有些模型会返回思考过程（<think>标签）
+ * - 有些会用markdown代码块包裹JSON
+ * - 需要提取纯净的JSON对象
+ */
 function cleanAndParseJSON(text: string): AnalysisResult {
   let cleanText = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
   cleanText = cleanText.replace(/```json/g, '').replace(/```/g, '');
@@ -19,7 +42,7 @@ function cleanAndParseJSON(text: string): AnalysisResult {
   try {
     const res = JSON.parse(jsonString);
     
-    // Ensure lists exist
+    // 确保必要的数组字段存在
     if (!res.scenes) res.scenes = [];
     if (!res.episodes) res.episodes = [];
     
@@ -30,26 +53,33 @@ function cleanAndParseJSON(text: string): AnalysisResult {
   }
 }
 
-// Helper: Enforce Duration Constraints via Code
+/**
+ * 强制执行时长约束
+ * 
+ * 为什么需要代码层面的约束？
+ * - AI有时会忽略用户的时长要求
+ * - 根据台词字数和语速自动计算准确的镜头时长
+ * - 确保分镜表符合实际拍摄需求
+ */
 function enforceConstraints(result: AnalysisResult, customInstructions?: string): AnalysisResult {
   if (!customInstructions) return result;
 
-  // 1. Parse constraints
+  // 从用户约束中提取语速参数（例如：语速≈6字/秒）
   const rateMatch = customInstructions.match(/语速≈(\d+)字\/秒/);
   const wordsPerSecond = rateMatch ? parseInt(rateMatch[1]) : 6;
 
-  // 2. Iterate and fix
+  // 遍历所有镜头，根据台词长度重新计算时长
   if (result.episodes) {
     result.episodes.forEach(ep => {
       ep.scenes.forEach(scene => {
         scene.shots.forEach(shot => {
-          // Fix Duration based on Dialogue
+          // 有台词的镜头：根据字数计算时长
           if (shot.dialogue && shot.dialogue.trim() !== "" && shot.dialogue !== "（无台词）") {
-             const charCount = shot.dialogue.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "").length; // Count effective chars
+             const charCount = shot.dialogue.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "").length;
              const calculatedDuration = Math.max(1, Math.ceil(charCount / wordsPerSecond));
              shot.duration = `${calculatedDuration}s`;
           } else {
-             // Default for action shots if missing
+             // 无台词的动作镜头：默认2秒
              if (!shot.duration || shot.duration === "0s") shot.duration = "2s";
           }
         });
@@ -59,22 +89,31 @@ function enforceConstraints(result: AnalysisResult, customInstructions?: string)
   return result;
 }
 
-// Retry helper
+/**
+ * 重试机制
+ * 
+ * 为什么需要重试？
+ * - API可能因网络问题临时失败
+ * - 使用指数退避策略（每次重试延迟翻倍）
+ * - 但不重试认证错误（401/403）和用户取消操作
+ */
 async function retry<T>(fn: () => Promise<T>, retries = 2, delay = 2000): Promise<T> {
   try {
     return await fn();
   } catch (error: any) {
+    // 用户主动取消，不重试
     if (error.name === 'AbortError' || error.message?.includes('aborted') || error.message?.includes('取消')) {
       throw error;
     }
     const msg = error.toString().toLowerCase();
+    // 认证错误，不重试
     if (msg.includes("401") || msg.includes("403") || msg.includes("invalid key")) throw error;
     
     if (retries <= 0) throw error;
     
     console.warn(`API call failed, retrying... (${retries} left). Error: ${error.message}`);
     await new Promise(resolve => setTimeout(resolve, delay));
-    return retry(fn, retries - 1, delay * 2);
+    return retry(fn, retries - 1, delay * 2);  // 指数退避
   }
 }
 
