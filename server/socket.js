@@ -4,10 +4,24 @@ import { getDB } from './db.js';
 export function setupSocket(io) {
   // In-memory tracking for active sockets (ephemeral)
   const socketUsers = {}; // socketId -> { userId, projectId, role, name }
+  
+  // 全局房间：用于项目列表更新通知
+  const GLOBAL_ROOM = 'global-project-list';
 
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.user.name} (${socket.id})`);
     const db = getDB();
+
+    // --- 加入全局房间（用于项目列表更新通知）---
+    socket.on('join-global', () => {
+      socket.join(GLOBAL_ROOM);
+      console.log(`${socket.user.name} joined global room for project list updates`);
+    });
+
+    // --- 离开全局房间 ---
+    socket.on('leave-global', () => {
+      socket.leave(GLOBAL_ROOM);
+    });
 
     // --- JOIN PROJECT ---
     socket.on('join-project', async ({ projectId }) => {
@@ -229,18 +243,38 @@ export function setupSocket(io) {
 
         try {
             const updates = {};
-            if (data.result) updates.data = JSON.stringify(data.result);
-            if (data.episodes) updates.episodes = JSON.stringify(data.episodes);
+            // 保存分析结果（包含分镜表数据）
+            if (data.result) {
+                updates.data = JSON.stringify(data.result);
+                console.log('Saving result data, episodes count:', data.result.episodes?.length || 0);
+            }
+            // 保存剧集列表（用户输入的剧本）
+            if (data.episodes) {
+                updates.episodes = JSON.stringify(data.episodes);
+                console.log('Saving episodes, count:', data.episodes.length);
+            }
             updates.updated_at = Date.now();
             
             const fields = Object.keys(updates).map(k => `${k} = ?`).join(', ');
             const values = Object.values(updates);
             
             if (fields.length > 0) {
+                console.log('Updating project:', currentUser.projectId, 'fields:', Object.keys(updates));
                 await db.run(`UPDATE projects SET ${fields} WHERE id = ?`, [...values, currentUser.projectId]);
+                console.log('Project saved successfully');
+            } else {
+                console.log('No data to save');
             }
 
-            socket.to(currentUser.projectId).emit('project-updated', data);
+            // 广播更新，包含更新者信息
+            socket.to(currentUser.projectId).emit('project-updated', {
+                ...data,
+                updatedBy: {
+                    id: currentUser.id,
+                    name: currentUser.name
+                }
+            });
+            console.log('Broadcast sent to room:', currentUser.projectId);
         } catch(e) {
             console.error("Save Error:", e);
         }

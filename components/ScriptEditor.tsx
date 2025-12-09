@@ -15,10 +15,11 @@ interface ScriptEditorProps {
   isAnalyzing: boolean;
   locked: boolean;
   onAddHistory?: (summary: string) => void;
+  onSaveEpisodeContent?: (episodeId: string, content: string) => void;  // 保存剧集内容时同步到服务器
 }
 
 export const ScriptEditor: React.FC<ScriptEditorProps> = ({ 
-  episodes, onUpdateEpisode, onExpandEpisode, onAddEpisode, onAnalyzeEpisode, onDeleteEpisode, customInstructions, setCustomInstructions, isAnalyzing, locked, onAddHistory
+  episodes, onUpdateEpisode, onExpandEpisode, onAddEpisode, onAnalyzeEpisode, onDeleteEpisode, customInstructions, setCustomInstructions, isAnalyzing, locked, onAddHistory, onSaveEpisodeContent
 }) => {
   // --- 组件内部状态 (Local State) ---
   const [isProcessingFile, setIsProcessingFile] = useState(false);
@@ -50,9 +51,15 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
   };
 
   const saveContent = (ep: ScriptEpisode) => {
+    // 先更新本地显示状态
     onUpdateEpisode(ep.id, { content: tempContent });
     setEditingContentId(null);
     if (onAddHistory) onAddHistory(`更新了 ${ep.title} 的剧本内容`);
+    // 同步到服务器 - 传递最新的内容，由 Workspace 处理状态更新和服务器同步
+    if (onSaveEpisodeContent) {
+      console.log('ScriptEditor: Saving episode content:', ep.id, 'length:', tempContent.length);
+      onSaveEpisodeContent(ep.id, tempContent);
+    }
   };
 
   const handleStatusChange = (ep: ScriptEpisode, newStatus: any) => {

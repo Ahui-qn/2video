@@ -15,6 +15,7 @@
  */
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { SOCKET_URL } from '../services/apiConfig';
 
 // 用户角色：admin=管理员(所有权限), editor=编辑者(可编辑), viewer=观察者(只读)
 export type Role = 'admin' | 'editor' | 'viewer';
@@ -66,6 +67,9 @@ interface CollaborationContextType {
   projectInfo: ProjectInfo | null;
   isRemoteUpdate: boolean;  // 标记：当前更新是否来自远程（防止循环同步）
   setIsRemoteUpdate: (value: boolean) => void;
+  hasRemoteChanges: boolean;  // 是否有远程更新待刷新
+  clearRemoteChanges: () => void;  // 清除远程更新标记
+  lastUpdateBy: string | null;  // 最后更新者名称
 }
 
 const CollaborationContext = createContext<CollaborationContextType | undefined>(undefined);
@@ -109,6 +113,10 @@ export const CollaborationProvider: React.FC<ProviderProps> = ({
   const isRemoteUpdateRef = useRef(false);
   const [isRemoteUpdate, setIsRemoteUpdate] = useState(false);
   
+  // 远程更新提示状态
+  const [hasRemoteChanges, setHasRemoteChanges] = useState(false);
+  const [lastUpdateBy, setLastUpdateBy] = useState<string | null>(null);
+  
   // 重连标记：首次连接后设为true，断线重连时自动重新加入房间
   const shouldRejoinRef = useRef(false);
   
@@ -118,6 +126,12 @@ export const CollaborationProvider: React.FC<ProviderProps> = ({
   // 使用ref保存回调，避免socket因依赖变化而重新创建
   const onProjectUpdateRef = useRef(onProjectUpdate);
   onProjectUpdateRef.current = onProjectUpdate;
+  
+  // 清除远程更新标记
+  const clearRemoteChanges = useCallback(() => {
+    setHasRemoteChanges(false);
+    setLastUpdateBy(null);
+  }, []);
 
   /**
    * WebSocket连接管理
@@ -132,7 +146,7 @@ export const CollaborationProvider: React.FC<ProviderProps> = ({
     const token = localStorage.getItem('script2video_token');
     
     // 创建socket连接，配置自动重连
-    const newSocket = io('http://localhost:3001', {
+    const newSocket = io(SOCKET_URL, {
       auth: { token },
       reconnection: true,
       reconnectionAttempts: 5,
@@ -225,6 +239,13 @@ export const CollaborationProvider: React.FC<ProviderProps> = ({
     newSocket.on('project-updated', (data: any) => {
       isRemoteUpdateRef.current = true;
       setIsRemoteUpdate(true);
+      
+      // 设置远程更新提示
+      setHasRemoteChanges(true);
+      if (data.updatedBy?.name) {
+        setLastUpdateBy(data.updatedBy.name);
+      }
+      
       if (onProjectUpdateRef.current) {
         onProjectUpdateRef.current(data);
       }
@@ -257,12 +278,23 @@ export const CollaborationProvider: React.FC<ProviderProps> = ({
    * 离线处理：如果断线，更新会加入队列，重连后自动发送
    */
   const updateProject = useCallback((data: any) => {
-    if (role === 'viewer') return;
+    if (role === 'viewer') {
+      console.log('updateProject blocked: viewer role');
+      return;
+    }
+    
+    console.log('updateProject called:', {
+      hasSocket: !!socket,
+      isConnected,
+      dataKeys: Object.keys(data || {})
+    });
     
     if (socket && isConnected) {
       socket.emit('project-update', data);
+      console.log('project-update emitted');
     } else {
       offlineQueueRef.current.push(data);
+      console.log('Added to offline queue');
     }
   }, [socket, role, isConnected]);
 
@@ -289,7 +321,10 @@ export const CollaborationProvider: React.FC<ProviderProps> = ({
       projectData,
       projectInfo,
       isRemoteUpdate,
-      setIsRemoteUpdate
+      setIsRemoteUpdate,
+      hasRemoteChanges,
+      clearRemoteChanges,
+      lastUpdateBy
     }}>
       {children}
     </CollaborationContext.Provider>

@@ -14,17 +14,13 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { initDB } from './db.js';
 import authRoutes from './auth.js';
-import projectRoutes from './project.js';
+import { createProjectRoutes } from './project.js';
 import { socketAuthMiddleware } from './middleware.js';
 import { setupSocket } from './socket.js';
 
 const app = express();
 app.use(cors());  // 允许跨域请求（开发环境）
 app.use(express.json());  // 解析JSON请求体
-
-// REST API路由
-app.use('/api/auth', authRoutes);      // 认证相关：登录、注册
-app.use('/api/project', projectRoutes); // 项目相关：创建、查询、更新
 
 // 创建HTTP服务器（Express和Socket.IO共用）
 const server = createServer(app);
@@ -36,6 +32,10 @@ const io = new Server(server, {
     methods: ["GET", "POST"]
   }
 });
+
+// REST API路由
+app.use('/api/auth', authRoutes);      // 认证相关：登录、注册
+app.use('/api/project', createProjectRoutes(io)); // 项目相关：创建、查询、更新（传入io用于广播）
 
 // Socket.IO中间件：验证JWT token，拒绝未认证的连接
 io.use(socketAuthMiddleware);
@@ -52,8 +52,10 @@ async function startServer() {
   await initDB();
 
   const PORT = 3001;
-  server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  const HOST = '0.0.0.0';  // 监听所有网络接口，允许局域网访问
+  server.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
+    console.log(`局域网访问：请使用本机IP地址访问，如 http://192.168.x.x:${PORT}`);
   });
 }
 

@@ -13,6 +13,7 @@ import { Workspace } from './components/Workspace';
 import { CreateProjectModal, ProjectData } from './components/CreateProjectModal';
 import { Project } from './types';
 import { CollaborationProvider } from './components/CollaborationContext';
+import { API_BASE_URL } from './services/apiConfig';
 
 // 视图状态：auth=登录页, home=项目列表, workspace=工作区
 type ViewState = 'auth' | 'home' | 'workspace';
@@ -32,13 +33,33 @@ const App: React.FC = () => {
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  // 组件挂载时检查本地存储，恢复登录状态
-  // 这样用户刷新页面后不需要重新登录
+  // 组件挂载时检查本地存储，恢复登录状态和当前项目
+  // 这样用户刷新页面后不需要重新登录，也能保持在当前项目中
   useEffect(() => {
     const storedUser = localStorage.getItem('script2video_user');
     if (storedUser) {
       setUser(JSON.parse(storedUser));
-      setView('home');
+      
+      // 检查是否有保存的当前项目
+      const storedProjectId = localStorage.getItem('script2video_current_project');
+      if (storedProjectId) {
+        // 恢复到工作区，使用占位项目
+        const stubProject: Project = {
+          id: storedProjectId,
+          name: "加载中...",
+          creator: "Unknown",
+          description: "正在加载项目...",
+          coverImage: null,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          episodes: [],
+          data: null
+        };
+        setCurrentProject(stubProject);
+        setView('workspace');
+      } else {
+        setView('home');
+      }
     }
   }, []);
 
@@ -67,7 +88,7 @@ const App: React.FC = () => {
   const handleCreateProject = async (data: ProjectData) => {
     try {
       const token = localStorage.getItem('script2video_token');
-      const res = await fetch('http://localhost:3001/api/project', {
+      const res = await fetch(`${API_BASE_URL}/project`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -138,7 +159,7 @@ const App: React.FC = () => {
   const handleLoadMockProject = async () => {
     try {
       const token = localStorage.getItem('script2video_token');
-      const res = await fetch('http://localhost:3001/api/project', {
+      const res = await fetch(`${API_BASE_URL}/project`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -226,7 +247,12 @@ const App: React.FC = () => {
               onCreate={handleCreateProject} 
             />
             <ProjectList 
-              onSelectProject={(p) => { setCurrentProject(p); setView('workspace'); }} 
+              onSelectProject={(p) => { 
+                setCurrentProject(p); 
+                setView('workspace');
+                // 保存当前项目ID到localStorage，刷新后可恢复
+                localStorage.setItem('script2video_current_project', p.id);
+              }} 
               onCreateNew={() => setIsCreateModalOpen(true)} 
               onLoadMock={handleLoadMockProject}
               onJoin={handleJoinProject}
@@ -241,7 +267,12 @@ const App: React.FC = () => {
           >
             <Workspace 
               project={currentProject} 
-              onBack={() => { setCurrentProject(null); setView('home'); }} 
+              onBack={() => { 
+                setCurrentProject(null); 
+                setView('home');
+                // 清除保存的当前项目，返回首页
+                localStorage.removeItem('script2video_current_project');
+              }} 
               onSaveProject={handleSaveProject}
             />
           </CollaborationProvider>

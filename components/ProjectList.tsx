@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { Folder, Clock, Plus, Search, Trash2, Link, Loader2, RefreshCw, Users } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { Folder, Clock, Plus, Search, Trash2, Link, Loader2, RefreshCw, Users, Bell } from 'lucide-react';
+import { io, Socket } from 'socket.io-client';
 import { Project } from '../types';
+import { API_BASE_URL, SOCKET_URL } from '../services/apiConfig';
 
 interface ServerProject extends Project {
   myRole?: string;
+  isNew?: boolean;  // 标记是否有新更新
 }
 
 interface ProjectListProps {
@@ -46,13 +49,48 @@ export const ProjectList: React.FC<ProjectListProps> = ({ onSelectProject, onCre
   const [inviteCode, setInviteCode] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasNewUpdates, setHasNewUpdates] = useState(false);  // 是否有新项目更新
+  const socketRef = useRef<Socket | null>(null);
+
+  // 连接Socket监听项目列表更新
+  useEffect(() => {
+    const token = localStorage.getItem('script2video_token');
+    if (!token) return;
+
+    const socket = io(SOCKET_URL, {
+      auth: { token },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('ProjectList: Connected to socket server');
+      socket.emit('join-global');  // 加入全局房间
+    });
+
+    // 注意：不再监听 project-list-updated 事件
+    // 项目只对创建者和被邀请的成员可见，通过邀请链接加入
+    // 其他用户不应该看到别人创建的项目
+
+    socket.on('disconnect', () => {
+      console.log('ProjectList: Disconnected from socket server');
+    });
+
+    return () => {
+      socket.emit('leave-global');
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, []);
 
   const loadProjects = async () => {
     setIsLoading(true);
     setError(null);
     try {
       const token = localStorage.getItem('script2video_token');
-      const res = await fetch('http://localhost:3001/api/project', {
+      const res = await fetch(`${API_BASE_URL}/project`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -87,7 +125,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({ onSelectProject, onCre
     if (confirm('确定要删除这个项目吗？')) {
       try {
         const token = localStorage.getItem('script2video_token');
-        const res = await fetch(`http://localhost:3001/api/project/${id}`, {
+        const res = await fetch(`${API_BASE_URL}/project/${id}`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -218,9 +256,23 @@ export const ProjectList: React.FC<ProjectListProps> = ({ onSelectProject, onCre
         {filteredProjects.map(project => (
           <div 
             key={project.id}
-            onClick={() => onSelectProject(project)}
+            onClick={() => {
+              // 点击时清除NEW标记
+              setProjects(prev => prev.map(p => p.id === project.id ? { ...p, isNew: false } : p));
+              onSelectProject(project);
+            }}
             className="group relative aspect-[4/3] bg-[#0f0518] border border-white/10 rounded-3xl p-6 cursor-pointer hover:border-white/30 hover:shadow-[0_0_30px_rgba(204,255,0,0.1)] transition-all flex flex-col justify-between overflow-hidden"
           >
+            {/* NEW 标记 - 当项目有新更新时显示 */}
+            {project.isNew && (
+              <div className="absolute top-3 left-3 z-10">
+                <span className="px-2 py-1 bg-[#ccff00] text-black text-[10px] font-bold rounded-full animate-pulse flex items-center gap-1">
+                  <Bell size={10} />
+                  NEW
+                </span>
+              </div>
+            )}
+            
             <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button 
                   onClick={(e) => handleDelete(e, project.id)}

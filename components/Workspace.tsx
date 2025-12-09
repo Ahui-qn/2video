@@ -21,7 +21,7 @@ import { SettingsModal } from './SettingsModal';
 import { analyzeScript, extractAssetsOnly } from '../services/geminiService';
 import { readFileContent } from '../services/fileService';
 import { AppState, AnalysisResult, Shot, ModelConfig, UserKeys, ScriptEpisode, CharacterProfile, AssetProfile, Project, HistoryRecord } from '../types';
-import { Download, Clapperboard, Sparkles, Settings, ChevronDown, Cpu, Moon, Square, ArrowLeft, Layers, Image as ImageIcon, History as HistoryIcon, Trash2, Users, Shield, Wifi, Save } from 'lucide-react';
+import { Download, Clapperboard, Sparkles, Settings, ChevronDown, Cpu, Moon, Square, ArrowLeft, Layers, Image as ImageIcon, History as HistoryIcon, Trash2, Users, Shield, Wifi } from 'lucide-react';
 import { useCollaboration, Collaborator, ProjectData } from './CollaborationContext';
 import { TeamModal } from './TeamModal';
 import { ManualShotModal } from './ManualShotModal';
@@ -63,7 +63,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
     projectData: serverProjectData,  // 服务器返回的项目数据
     projectInfo,
     isRemoteUpdate,    // 标记：当前更新是否来自远程
-    setIsRemoteUpdate
+    setIsRemoteUpdate,
+    hasRemoteChanges,  // 是否有远程更新
+    clearRemoteChanges,
+    lastUpdateBy       // 最后更新者
   } = useCollaboration();
   
   const [showTeamModal, setShowTeamModal] = useState(false);
@@ -171,22 +174,40 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
   }, [socket, setIsRemoteUpdate]);
 
   /**
-   * 手动保存项目数据
+   * 同步项目数据到服务器
    * 
-   * 改为手动保存机制：用户点击保存按钮才同步到其他用户
-   * 这样可以避免编辑过程中的频繁同步，给用户更多控制权
+   * 这是一个通用的同步函数，在任何组件保存时调用
+   * 包括：分镜表保存、资产编辑保存、剧集内容保存等
+   * 
+   * 注意：必须传入最新的数据，不能依赖闭包中的旧值
    */
-  const handleManualSave = useCallback(() => {
-    if (role !== 'viewer' && !isRemoteUpdateRef.current) {
-      updateProject({
-        result,
-        episodes,
-        globalAssets
-      });
-      // 可以添加保存成功提示
-      console.log('项目已保存并同步');
+  const syncToServer = useCallback((newResult?: AnalysisResult | null, newEpisodes?: ScriptEpisode[]) => {
+    if (role === 'viewer') {
+      console.log('syncToServer: blocked - viewer role');
+      return;
     }
-  }, [result, episodes, globalAssets, role, updateProject]);
+    
+    // 使用传入的参数，如果没有传入则使用当前状态
+    const resultToSync = newResult !== undefined ? newResult : result;
+    const episodesToSync = newEpisodes !== undefined ? newEpisodes : episodes;
+    
+    const dataToSync = {
+      result: resultToSync,
+      episodes: episodesToSync,
+      globalAssets: resultToSync  // globalAssets 和 result 保持一致
+    };
+    
+    console.log('syncToServer: Syncing to server:', {
+      hasResult: !!dataToSync.result,
+      resultEpisodes: dataToSync.result?.episodes?.length || 0,
+      episodesCount: dataToSync.episodes?.length || 0,
+      episodesData: dataToSync.episodes?.map(ep => ({ id: ep.id, title: ep.title, contentLength: ep.content?.length || 0 })),
+      characters: dataToSync.result?.characters?.length || 0,
+      assets: dataToSync.result?.assets?.length || 0
+    });
+    
+    updateProject(dataToSync);
+  }, [result, episodes, role, updateProject]);
 
   // Load Keys
   useEffect(() => {
@@ -196,7 +217,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
     }
   }, []);
 
-  // Save Project when important state changes
+  // Save Project when important state changes (本地状态更新)
+  // 注意：服务器同步现在通过 handleSaveEpisode 手动触发
   useEffect(() => {
     const updatedProject = {
       ...project,
@@ -205,7 +227,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
       updatedAt: Date.now()
     };
     onSaveProject(updatedProject);
-  }, [result, episodes]); // Debouncing might be better in prod, but fine for now
+  }, [result, episodes]);
 
   // --- HELPERS ---
   const handleSaveKeys = (keys: UserKeys) => {
@@ -323,16 +345,29 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
         setProgressStatus("资产提取完成");
         
         // Initialize result if empty
+        let newResult: AnalysisResult;
         if (!result) {
-            setResult({
+            newResult = {
                 title: assets.title,
                 synopsis: assets.synopsis,
                 characters: assets.characters,
                 assets: assets.assets,
                 scenes: [],
                 episodes: []
-            });
+            };
+            setResult(newResult);
+        } else {
+            // 合并资产到现有结果
+            newResult = {
+                ...result,
+                characters: assets.characters,
+                assets: assets.assets
+            };
+            setResult(newResult);
         }
+        
+        // 自动生成资产库后同步到服务器
+        syncToServer(newResult);
         
         setTimeout(() => {
              setIsUploadModalOpen(false);
@@ -374,12 +409,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
           status: 'draft',
           isExpanded: true
       };
-      setEpisodes(prev => [...prev.map(e => ({...e, isExpanded: false})), newEp]);
+      const newEpisodes = [...episodes.map(e => ({...e, isExpanded: false})), newEp];
+      setEpisodes(newEpisodes);
+      // 新增单集后同步到服务器
+      syncToServer(undefined, newEpisodes);
   };
 
   const handleDeleteEpisode = (id: string) => {
       if (confirm("确定要删除这一集吗？")) {
-         setEpisodes(prev => prev.filter(e => e.id !== id));
+         const newEpisodes = episodes.filter(e => e.id !== id);
+         setEpisodes(newEpisodes);
+         // 删除剧集后立即同步到服务器
+         syncToServer(undefined, newEpisodes);
       }
   };
 
@@ -439,24 +480,30 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
       setProgressStatus("分析完成！");
       
       setTimeout(() => {
+        let newResult: AnalysisResult;
         if (result && result.episodes) {
             const currentEpisodes = [...(result.episodes || [])];
             const newEpisodes = newData.episodes || [];
             const updatedEpisodes = [...currentEpisodes, ...newEpisodes];
             
-            setResult({
+            newResult = {
                 ...result,
                 episodes: updatedEpisodes,
                 scenes: updatedEpisodes.flatMap(e => e.scenes)
-            });
+            };
         } else {
-            setResult(newData);
+            newResult = newData;
         }
+        setResult(newResult);
         
         setAppState(AppState.COMPLETE);
 
         const currentEpId = targetEp!.id;
-        setEpisodes(prev => prev.map(ep => ep.id === currentEpId ? { ...ep, status: 'analyzed' as const, isExpanded: false, title: newData.episodes?.[0]?.title || ep.title } : ep));
+        const updatedEpisodes = episodes.map(ep => ep.id === currentEpId ? { ...ep, status: 'analyzed' as const, isExpanded: false, title: newData.episodes?.[0]?.title || ep.title } : ep);
+        setEpisodes(updatedEpisodes);
+        
+        // AI分析完成后同步到服务器
+        syncToServer(newResult, updatedEpisodes);
       }, 500);
 
     } catch (err: any) {
@@ -519,7 +566,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
 
       newScenes[sceneIndex] = { ...newScenes[sceneIndex], shots: newShots };
       newEpisodes[episodeIndex] = { ...newEpisodes[episodeIndex], scenes: newScenes };
-      setResult({ ...result, episodes: newEpisodes, scenes: newEpisodes.flatMap(e => e.scenes) });
+      const newResult = { ...result, episodes: newEpisodes, scenes: newEpisodes.flatMap(e => e.scenes) };
+      setResult(newResult);
+      // 新增分镜后同步到服务器
+      syncToServer(newResult);
   };
 
   const handleDeleteShot = (episodeIndex: number, sceneIndex: number, shotIndex: number) => {
@@ -530,21 +580,36 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
       newShots.splice(shotIndex, 1);
       newScenes[sceneIndex] = { ...newScenes[sceneIndex], shots: newShots };
       newEpisodes[episodeIndex] = { ...newEpisodes[episodeIndex], scenes: newScenes };
-      setResult({ ...result, episodes: newEpisodes, scenes: newEpisodes.flatMap(e => e.scenes) });
+      const newResult = { ...result, episodes: newEpisodes, scenes: newEpisodes.flatMap(e => e.scenes) };
+      setResult(newResult);
+      // 删除镜头后立即同步到服务器
+      syncToServer(newResult);
   };
 
   const handleSaveEpisode = async (episodeId: string, scenes: any[]) => {
       // Logic to update the result state with the modified scenes for a specific episode
-      if (!result || !result.episodes) return;
+      if (!result || !result.episodes) {
+        console.log('handleSaveEpisode: No result or episodes to save');
+        return;
+      }
       const epIndex = result.episodes.findIndex(e => e.id === episodeId);
-      if (epIndex === -1) return;
+      if (epIndex === -1) {
+        console.log('handleSaveEpisode: Episode not found:', episodeId);
+        return;
+      }
 
       const newEpisodes = [...result.episodes];
       newEpisodes[epIndex] = { ...newEpisodes[epIndex], scenes: scenes };
-      setResult({ ...result, episodes: newEpisodes, scenes: newEpisodes.flatMap(e => e.scenes) });
+      const newResult = { ...result, episodes: newEpisodes, scenes: newEpisodes.flatMap(e => e.scenes) };
+      setResult(newResult);
+      setGlobalAssets(newResult);  // 同步更新 globalAssets
       
-      // Simulate network delay for effect
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // 立即同步到服务器
+      console.log('handleSaveEpisode: Saving to server:', episodeId, 'scenes:', scenes.length);
+      syncToServer(newResult, episodes);
+      
+      // 短暂延迟让UI显示保存状态
+      await new Promise(resolve => setTimeout(resolve, 300));
   };
 
   // --- Asset Handlers ---
@@ -628,21 +693,31 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
   };
   
   const handleAddCharacter = () => {
+    const emptyData: AnalysisResult = { title: '', synopsis: '', characters: [], assets: [], scenes: [], episodes: [] };
     const update = (data: AnalysisResult | null) => {
-      if (!data) return null;
-      return { ...data, characters: [...data.characters, { name: '新角色', visualSummary: '', traits: '' }] };
+      const base = data || emptyData;
+      return { ...base, characters: [...base.characters, { name: '新角色', visualSummary: '', traits: '' }] };
     };
-    setGlobalAssets(prev => update(prev));
-    setResult(prev => update(prev));
+    const newGlobalAssets = update(globalAssets);
+    const newResult = update(result);
+    setGlobalAssets(newGlobalAssets);
+    setResult(newResult);
+    // 新增角色后同步到服务器
+    syncToServer(newResult);
   };
 
   const handleAddAsset = () => {
+    const emptyData: AnalysisResult = { title: '', synopsis: '', characters: [], assets: [], scenes: [], episodes: [] };
     const update = (data: AnalysisResult | null) => {
-      if (!data) return null;
-      return { ...data, assets: [...data.assets, { name: '新资产', description: '', type: 'Prop' as const }] };
+      const base = data || emptyData;
+      return { ...base, assets: [...base.assets, { name: '新资产', description: '', type: 'Prop' as const }] };
     };
-    setGlobalAssets(prev => update(prev));
-    setResult(prev => update(prev));
+    const newGlobalAssets = update(globalAssets);
+    const newResult = update(result);
+    setGlobalAssets(newGlobalAssets);
+    setResult(newResult);
+    // 新增资产后同步到服务器
+    syncToServer(newResult);
   };
 
   const handleDeleteCharacter = (index: number) => {
@@ -653,8 +728,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
           newChars.splice(index, 1);
           return { ...data, characters: newChars };
       };
-      setGlobalAssets(prev => update(prev));
-      setResult(prev => update(prev));
+      const newGlobalAssets = update(globalAssets);
+      const newResult = update(result);
+      setGlobalAssets(newGlobalAssets);
+      setResult(newResult);
+      // 删除后立即同步到服务器
+      syncToServer(newResult);
   };
 
   const handleDeleteAsset = (index: number) => {
@@ -664,8 +743,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
           newAssets.splice(index, 1);
           return { ...data, assets: newAssets };
       };
-      setGlobalAssets(prev => update(prev));
-      setResult(prev => update(prev));
+      const newGlobalAssets = update(globalAssets);
+      const newResult = update(result);
+      setGlobalAssets(newGlobalAssets);
+      setResult(newResult);
+      // 删除后立即同步到服务器
+      syncToServer(newResult);
   };
 
   // Handle manual shot addition
@@ -694,6 +777,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
       };
       setResult(newResult);
       addHistory(`手动添加分镜: ${sceneHeader}`);
+      // 同步到服务器
+      syncToServer(newResult);
       return;
     }
 
@@ -723,13 +808,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
     }
 
     // Update result
-    setResult({
+    const newResult = {
       ...result,
       episodes: newEpisodes,
       scenes: newEpisodes.flatMap(ep => ep.scenes)
-    });
+    };
+    setResult(newResult);
     
     addHistory(`手动添加分镜: ${sceneHeader}`);
+    // 同步到服务器
+    syncToServer(newResult);
   };
 
   const handleExport = () => {
@@ -881,6 +969,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
               {/* Connection Status */}
               <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-red-500'} mr-2`} title={isConnected ? "已连接协作服务" : "未连接"} />
               
+              {/* 远程更新提示 - 有人修改时显示 */}
+              {hasRemoteChanges && (
+                <button
+                  onClick={clearRemoteChanges}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 animate-pulse hover:bg-orange-500/30 transition-all"
+                  title="点击清除提示"
+                >
+                  <span className="w-2 h-2 rounded-full bg-orange-400"></span>
+                  {lastUpdateBy ? `${lastUpdateBy} 更新了内容` : '有新更新'}
+                </button>
+              )}
+              
               {/* NEW AUTO STORYBOARD BUTTON */}
               <button 
                   onClick={() => setIsUploadModalOpen(true)}
@@ -892,19 +992,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
               </button>
               <div className="w-px h-6 bg-white/10"></div>
 
-              {/* 手动保存按钮 - 只有编辑者和管理员可见 */}
-              {role !== 'viewer' && (
-                  <>
-                  <button 
-                      onClick={handleManualSave} 
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 transition-all uppercase"
-                      title="保存并同步到其他用户"
-                  >
-                      <Save size={14} /> 保存
-                  </button>
-                  <div className="w-px h-6 bg-white/10"></div>
-                  </>
-              )}
+              {/* 手动保存按钮已移除 - 现在通过编辑单个分镜后点击保存来同步 */}
 
               {globalAssets && result && (
                   <>
@@ -1008,7 +1096,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
                 >
                     <div className={`w-full h-full bg-[#0f0518]/60 backdrop-blur-2xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative ${role === 'viewer' ? 'pointer-events-none opacity-80' : ''}`}>
                         <AssetPanel 
-                            data={result || globalAssets} 
+                            data={result || globalAssets || { title: '', synopsis: '', characters: [], assets: [], scenes: [], episodes: [] }} 
                             onUpdateImage={handleUpdateAssetImage} 
                             onUpdateText={handleUpdateAssetText}
                             onRemoveImage={handleRemoveAssetImage}
@@ -1017,6 +1105,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
                             onDeleteCharacter={handleDeleteCharacter}
                             onDeleteAsset={handleDeleteAsset}
                             onAddHistory={addHistory}
+                            onSaveAsset={() => syncToServer()}
                           />
                     </div>
                 </div>
@@ -1039,6 +1128,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({ project, onSaveProject, on
                             isAnalyzing={appState === AppState.ANALYZING || appState === AppState.EXTRACTING_CONTEXT} 
                             locked={role === 'viewer'}
                             onAddHistory={addHistory}
+                            onSaveEpisodeContent={(episodeId: string, content: string) => {
+                              // 先更新本地状态，然后同步到服务器
+                              // 注意：这里直接构建新的 episodes 数组并同步，不依赖 React 状态更新
+                              const updatedEpisodes = episodes.map(ep => 
+                                ep.id === episodeId ? { ...ep, content } : ep
+                              );
+                              // 同时更新本地状态
+                              setEpisodes(updatedEpisodes);
+                              // 立即同步到服务器
+                              console.log('Saving episode content:', episodeId, 'content length:', content.length);
+                              syncToServer(result, updatedEpisodes);
+                            }}
                         />
                     </div>
 

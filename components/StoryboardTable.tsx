@@ -299,7 +299,6 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
           <div 
             key={episode.id} 
             className={`mb-8 transition-all duration-500 ${isCollapsed ? 'opacity-50 grayscale hover:grayscale-0 hover:opacity-100' : ''}`}
-            onDoubleClick={() => !isEditing && handleEnterEdit(episode)}
           >
             
             {/* --- HEADER --- */}
@@ -633,6 +632,31 @@ export const StoryboardTable: React.FC<StoryboardTableProps> = ({ scenes, episod
                                 </div>
                             </React.Fragment>
                         ))}
+
+                        {/* 底部插入镜头按钮 - 始终显示，悬停时可见 */}
+                        {onInsertShot && scene.shots.length > 0 && (
+                            <div 
+                                className="h-6 w-full relative z-10 opacity-0 hover:opacity-100 transition-all flex items-center justify-center cursor-pointer group/insert-bottom mt-2"
+                                onClick={() => onInsertShot(epIndex, sceneIndex, scene.shots.length)}
+                                title="在末尾添加新镜头"
+                            >
+                                <div className="w-full h-[1px] bg-[#ccff00] group-hover/insert-bottom:h-[2px] shadow-[0_0_8px_#ccff00] transition-all"></div>
+                                <div className="absolute bg-[#0f0518] border border-[#ccff00] text-[#ccff00] text-[9px] px-3 py-1 rounded-full flex items-center gap-1 transform scale-0 group-hover/insert-bottom:scale-100 transition-transform duration-200 shadow-lg">
+                                    <Plus size={10} /> 添加镜头
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 当没有镜头时显示添加按钮 */}
+                        {onInsertShot && scene.shots.length === 0 && (
+                            <button 
+                                onClick={() => onInsertShot(epIndex, sceneIndex, 0)}
+                                className="w-full py-3 border border-dashed border-white/10 rounded-xl flex items-center justify-center gap-2 text-[10px] font-bold text-slate-500 hover:text-[#ccff00] hover:border-[#ccff00]/50 hover:bg-[#ccff00]/5 transition-all group"
+                            >
+                                <Plus size={12} className="group-hover:scale-110 transition-transform" />
+                                添加第一个镜头
+                            </button>
+                        )}
 
                         {/* ADD SHOT BUTTON (Only in Edit Mode) */}
                         {isEditing && onAddShot && (

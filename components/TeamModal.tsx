@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Users, Shield, UserPlus, Trash2, Check, Activity } from 'lucide-react';
 import { useCollaboration, Role, MemberInfo } from './CollaborationContext';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface TeamModalProps {
   isOpen: boolean;
@@ -26,7 +27,7 @@ export const TeamModal: React.FC<TeamModalProps> = ({ isOpen, onClose, projectId
   useEffect(() => {
     if (isOpen && activeTab === 'audit') {
       const token = localStorage.getItem('script2video_token');
-      fetch(`http://localhost:3001/api/project/${projectId}/logs`, {
+      fetch(`${API_BASE_URL}/project/${projectId}/logs`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       .then(res => res.json())
@@ -41,12 +42,32 @@ export const TeamModal: React.FC<TeamModalProps> = ({ isOpen, onClose, projectId
     updatePermission(userId, newRole);
   };
 
-  const copyInvite = () => {
-    // Mock invite link
+  const copyInvite = async () => {
+    // 生成邀请链接
     const link = `${window.location.origin}/?join=${projectId}`;
-    navigator.clipboard.writeText(link);
-    setInviteLink('已复制!');
-    setTimeout(() => setInviteLink(''), 2000);
+    
+    try {
+      // 优先使用 Clipboard API（需要 HTTPS 或 localhost）
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(link);
+        setInviteLink('已复制!');
+      } else {
+        // 降级方案：使用传统的 execCommand
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        setInviteLink('已复制!');
+      }
+    } catch (err) {
+      // 如果都失败，显示链接让用户手动复制
+      setInviteLink(link);
+    }
+    setTimeout(() => setInviteLink(''), 3000);
   };
 
   // Combine members and active users for display

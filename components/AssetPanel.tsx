@@ -12,10 +12,11 @@ interface AssetPanelProps {
   onDeleteCharacter?: (index: number) => void;
   onDeleteAsset?: (index: number) => void;
   onAddHistory?: (summary: string) => void;
+  onSaveAsset?: () => void;  // 保存资产时同步到服务器
 }
 
 export const AssetPanel: React.FC<AssetPanelProps> = ({ 
-    data, onUpdateImage, onUpdateText, onRemoveImage, onAddCharacter, onAddAsset, onDeleteCharacter, onDeleteAsset, onAddHistory 
+    data, onUpdateImage, onUpdateText, onRemoveImage, onAddCharacter, onAddAsset, onDeleteCharacter, onDeleteAsset, onAddHistory, onSaveAsset 
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -51,12 +52,15 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
-  if (!data) return <div className="flex-1 flex items-center justify-center text-slate-500 font-mono text-xs h-full">未检测到资产库</div>;
+  // 当没有数据时，显示空状态但仍然允许添加资产
+  const hasData = data && (data.characters?.length > 0 || data.assets?.length > 0);
+  const characters = data?.characters || [];
+  const assets = data?.assets || [];
 
   // Filtering logic
-  const filteredCharacters = data.characters; 
-  const locationAssets = data.assets.filter(a => a.type === 'Location');
-  const propAssets = data.assets.filter(a => a.type !== 'Location');
+  const filteredCharacters = characters; 
+  const locationAssets = assets.filter(a => a.type === 'Location');
+  const propAssets = assets.filter(a => a.type !== 'Location');
 
   /**
    * 渲染资产卡片 - 统一大小和酸性设计风格
@@ -100,7 +104,7 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
                  {/* 菜单按钮 */}
                  <div className="shrink-0">
                      {isEditing ? (
-                         <button onClick={() => setEditingId(null)} className="p-1.5 bg-[#ccff00] text-black rounded-lg hover:scale-110 transition-transform">
+                         <button onClick={() => { setEditingId(null); onSaveAsset?.(); }} className="p-1.5 bg-[#ccff00] text-black rounded-lg hover:scale-110 transition-transform">
                              <Check size={12} />
                          </button>
                      ) : (
@@ -201,7 +205,12 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
                     </button>
                 </div>
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {filteredCharacters.map((char, idx) => renderCard(char, 'character', idx, data.characters.indexOf(char)))}
+                    {filteredCharacters.map((char, idx) => renderCard(char, 'character', idx, characters.indexOf(char)))}
+                    {filteredCharacters.length === 0 && (
+                        <div className="col-span-full text-center py-8 text-slate-500 text-xs">
+                            暂无角色，点击右上角 + 添加
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -217,7 +226,12 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
                     </button>
                 </div>
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {locationAssets.map((asset, idx) => renderCard(asset, 'asset', idx, data.assets.indexOf(asset)))}
+                    {locationAssets.map((asset, idx) => renderCard(asset, 'asset', idx, assets.indexOf(asset)))}
+                    {locationAssets.length === 0 && (
+                        <div className="col-span-full text-center py-8 text-slate-500 text-xs">
+                            暂无场景，点击右上角 + 添加
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -233,7 +247,12 @@ export const AssetPanel: React.FC<AssetPanelProps> = ({
                     </button>
                 </div>
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {propAssets.map((asset, idx) => renderCard(asset, 'asset', idx, data.assets.indexOf(asset)))}
+                    {propAssets.map((asset, idx) => renderCard(asset, 'asset', idx, assets.indexOf(asset)))}
+                    {propAssets.length === 0 && (
+                        <div className="col-span-full text-center py-8 text-slate-500 text-xs">
+                            暂无道具，点击右上角 + 添加
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

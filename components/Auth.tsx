@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Lock, User, ArrowRight, ShieldCheck, Loader2 } from 'lucide-react';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface AuthUser {
   id: string;
@@ -35,7 +36,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     setIsLoading(true);
 
     try {
-      const endpoint = isRegister ? 'http://localhost:3001/api/auth/register' : 'http://localhost:3001/api/auth/login';
+      const endpoint = isRegister ? `${API_BASE_URL}/auth/register` : `${API_BASE_URL}/auth/login`;
       const body = isRegister ? { email, password, name } : { email, password };
 
       const res = await fetch(endpoint, {
