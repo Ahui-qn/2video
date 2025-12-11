@@ -5,6 +5,7 @@
  * 1. 管理应用的三个主要视图：登录(auth)、项目列表(home)、工作区(workspace)
  * 2. 处理用户认证状态和项目选择
  * 3. 提供协作上下文包装器，使工作区支持实时多人协作
+ * 4. 启动时验证会话有效性，token过期时自动跳转登录页
  */
 import React, { useState, useEffect } from 'react';
 import { Auth } from './components/Auth';
@@ -14,6 +15,7 @@ import { CreateProjectModal, ProjectData } from './components/CreateProjectModal
 import { Project } from './types';
 import { CollaborationProvider } from './components/CollaborationContext';
 import { API_BASE_URL } from './services/apiConfig';
+import { validateSession, clearSession, getUser } from './services/sessionManager';
 
 // 视图状态：auth=登录页, home=项目列表, workspace=工作区
 type ViewState = 'auth' | 'home' | 'workspace';
@@ -32,35 +34,74 @@ const App: React.FC = () => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  // 新增：会话验证状态，用于显示加载指示器
+  const [isValidatingSession, setIsValidatingSession] = useState(true);
 
-  // 组件挂载时检查本地存储，恢复登录状态和当前项目
-  // 这样用户刷新页面后不需要重新登录，也能保持在当前项目中
+  /**
+   * 组件挂载时验证会话有效性
+   * 
+   * 流程：
+   * 1. 检查localStorage中是否有用户数据
+   * 2. 如果有，调用后端API验证token是否有效
+   * 3. 如果token有效，恢复用户状态并显示home/workspace
+   * 4. 如果token无效或过期，清除会话并显示登录页
+   * 
+   * Requirements: 1.1, 1.2, 1.3, 1.4
+   */
   useEffect(() => {
-    const storedUser = localStorage.getItem('script2video_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+    const validateOnStartup = async () => {
+      const storedUser = localStorage.getItem('script2video_user');
       
-      // 检查是否有保存的当前项目
-      const storedProjectId = localStorage.getItem('script2video_current_project');
-      if (storedProjectId) {
-        // 恢复到工作区，使用占位项目
-        const stubProject: Project = {
-          id: storedProjectId,
-          name: "加载中...",
-          creator: "Unknown",
-          description: "正在加载项目...",
-          coverImage: null,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          episodes: [],
-          data: null
-        };
-        setCurrentProject(stubProject);
-        setView('workspace');
-      } else {
-        setView('home');
+      // 没有存储的用户数据，直接显示登录页
+      if (!storedUser) {
+        setIsValidatingSession(false);
+        return;
       }
-    }
+
+      // 有存储的用户数据，验证token是否有效
+      const isValid = await validateSession();
+      
+      if (!isValid) {
+        // Token无效或过期，清除会话并显示登录页
+        console.log('Session invalid or expired, redirecting to login');
+        clearSession();
+        setUser(null);
+        setView('auth');
+        setIsValidatingSession(false);
+        return;
+      }
+
+      // Token有效，恢复用户状态
+      const userData = getUser();
+      if (userData) {
+        setUser({ ...userData, isAdmin: (userData as any).isAdmin ?? false });
+        
+        // 检查是否有保存的当前项目
+        const storedProjectId = localStorage.getItem('script2video_current_project');
+        if (storedProjectId) {
+          // 恢复到工作区，使用占位项目
+          const stubProject: Project = {
+            id: storedProjectId,
+            name: "加载中...",
+            creator: "Unknown",
+            description: "正在加载项目...",
+            coverImage: null,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            episodes: [],
+            data: null
+          };
+          setCurrentProject(stubProject);
+          setView('workspace');
+        } else {
+          setView('home');
+        }
+      }
+      
+      setIsValidatingSession(false);
+    };
+
+    validateOnStartup();
   }, []);
 
   // 处理URL中的项目邀请链接（例如：?join=project-id）
@@ -235,11 +276,21 @@ const App: React.FC = () => {
 
       {/* Content - Z:10 */}
       <div className="relative z-10 flex-1 flex flex-col h-full">
-        {view === 'auth' && (
+        {/* 会话验证中显示加载指示器 - Requirements: 1.4 */}
+        {isValidatingSession && (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#ccff00] mx-auto mb-4"></div>
+              <p className="text-slate-400">验证会话中...</p>
+            </div>
+          </div>
+        )}
+
+        {!isValidatingSession && view === 'auth' && (
           <Auth onLogin={handleLogin} />
         )}
 
-        {view === 'home' && (
+        {!isValidatingSession && view === 'home' && (
           <>
             <CreateProjectModal 
               isOpen={isCreateModalOpen} 
@@ -260,7 +311,7 @@ const App: React.FC = () => {
           </>
         )}
 
-        {view === 'workspace' && currentProject && user && (
+        {!isValidatingSession && view === 'workspace' && currentProject && user && (
           <CollaborationProvider 
             projectId={currentProject.id} 
             user={{ id: user.id, name: user.name, email: user.email }}

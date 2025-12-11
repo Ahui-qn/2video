@@ -19,9 +19,17 @@
     - **Property 4: Session Clear Removes All Data**
     - **Validates: Requirements 4.2**
 
-- [ ] 2. Add token validation endpoint to server
+- [x] 2. Add token validation endpoint to server
+
+
+
+
   - [ ] 2.1 Add /api/auth/validate endpoint
     - Create endpoint that verifies JWT token and returns user data
+
+
+
+
     - Return 401 if token is invalid or expired
     - _Requirements: 1.1_
 
